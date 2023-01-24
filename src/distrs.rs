@@ -1,5 +1,5 @@
 use egui::{Ui, RichText, Color32};
-use statrs::distribution::{Continuous, ContinuousCDF};
+use statrs::{distribution::{Continuous, ContinuousCDF}, assert_almost_eq};
 
 use crate::log;
 
@@ -27,11 +27,23 @@ fn find_zero(f: impl Fn(f64) -> Option<f64>) -> Option<f64> {
     if f(high).is_none() && f(low).is_none() {
         return None
     }
+    let mut count = 0;
     while f(high).is_none() {
         high = 0.9*high+0.1*low;
+        count += 1;
+        if count > 100 {
+            //eprintln!("No high");
+            return None
+        }
     }
+    count = 0;
     while f(low).is_none() {
         low = 0.9*low+0.1*high;
+        count += 1;
+        if count > 100 {
+            //eprintln!("No low");
+            return None
+        }
     }
     let f = |x| f(x).expect("Both set to not none");
     if f(high).signum() == f(low).signum() {
@@ -47,22 +59,31 @@ fn find_zero(f: impl Fn(f64) -> Option<f64>) -> Option<f64> {
             if high.is_infinite() || low.is_infinite() {
                 return None;
             }
+            //eprintln!("{}, {}", high, low);
         }
     }
     if f(high).signum() == -1.0 {
         (high, low) = (low, high);
     }
-    while (high-low) > 0.0000001 {
-        if f((high+low)/2.0) > 0.0 {
-            high = (high+low)/2.0;
+    let mut middle = (high+low)/2.0;
+    while (high-low)/middle > 0.00000001 {
+        let fv = f(middle);
+        if fv > 0.0 {
+            high = middle;
+        }
+        else if fv < 0.0 {
+            low = middle;
         }
         else {
-            low = (high+low)/2.0;
+            break;
         }
+        middle = (high+low)/2.0;
+        //eprintln!("f={}, hl={}", fv, high);
     }
     Some((high+low)/2.0)
 }
 
+#[derive(Debug)]
 pub(crate) struct Normal{
     mean: Option<f64>,
     sd: Option<f64>,
@@ -189,6 +210,7 @@ impl Fillable for Normal {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct ChiSquare {
     freedom: Option<f64>,
     xval: Option<f64>,
@@ -297,6 +319,7 @@ impl Fillable for ChiSquare {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct TDist {
     location: Option<f64>,
     scale: Option<f64>,
@@ -392,15 +415,31 @@ impl Fillable for TDist {
                 else if self.freedom.is_none() {
                     let l = self.location.expect("Freedon was only None");
                     let sc = self.scale.expect("Freedom was only None");
-                    //TODO make this more readable
-                    //TODO fix setting to numbers outside SND
-                    let fill = find_zero(|f| Some(statrs::distribution::StudentsT::new(l, sc, f)
-                    .ok()?.cdf(self.xval.expect("Freedom was only None"))-self.pval.expect("Freedom was only None")));
+                    let xval = self.xval.expect("Freedom was only None");
+                    if l-xval == 0.0 {
+                        return Err("X value must not be the location");
+                    }
+                    let fill = find_zero(|f| {
+                        let distr = statrs::distribution::StudentsT::new(l, sc, f)
+                        .ok()?;
+                        let test_p = distr.cdf(xval);
+                        Some(test_p-self.pval.expect("Freedom was only None"))
+                    });
+                    //println!("Escaped find");
                     match fill {
-                        Some(n) => {
+                        Some(n) if n<100000. => {
                             self.freedom = Some(n);
                             self.strings[2] = n.to_string();
                         },
+                        Some(n) => {
+                            if (statrs::distribution::StudentsT::new(l, sc, n).unwrap().cdf(self.xval.unwrap())-self.pval.unwrap()).abs() > 0.0001 {
+                                return Err("No freedom value found. P value must be closer to 0.5 than for the normal distribution");
+                            }
+                            else {
+                                self.freedom = Some(100000.);
+                                self.strings[2] = 100000.0.to_string();
+                            }
+                        }
                         None => {
                             return Err("No freedom value found");
                         },
@@ -454,6 +493,16 @@ impl NumBox for Ui {
     fn num_box(&mut self, l: &str, v: &mut String) -> egui::Response {
         self.horizontal(|ui| {
             ui.label(l);
+            /*
+            let resp = if v.is_empty() || v.parse::<f64>().is_ok() {
+                ui.text_edit_singleline(v)
+            }
+            else {
+                let mut resp = ui.text_edit_singleline(v);
+                resp = resp.union(ui.label(RichText::new("Invalid").color(Color32::DARK_RED)));
+                resp
+            };
+            */
             let resp = ui.text_edit_singleline(v);
             *(v) = coerce_numeric(v);
             resp

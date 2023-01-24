@@ -1,5 +1,7 @@
 mod distrs;
 
+use std::fs::File;
+
 use distrs::{Normal, TryContinuous, Show, ChiSquare, TDist};
 use egui::{plot::Line, Ui};
 
@@ -46,6 +48,7 @@ pub async fn start(canvas_id: &str) -> Result<(), eframe::wasm_bindgen::JsValue>
     Ok(())
 }
 
+#[derive(Debug)]
 enum Distr {
     None, 
     Normal(Normal),
@@ -126,11 +129,19 @@ impl eframe::App for OpenCrunch {
             });
         });
 
+        for file in &ctx.input().raw.dropped_files {
+            let path = file.path.clone().unwrap();
+            let len = File::open(path.clone()).unwrap().metadata().unwrap().len();
+            let name = path.file_name().unwrap().to_str().unwrap();
+            eprintln!("{}: {}", name, len);
+        }
+
         let resp = egui::panel::TopBottomPanel::bottom("Interactive").show(ctx, |ui| {
             self.distr.show_inputs(ui)
         }).inner;
 
         if (self.graph.is_empty() || (resp.is_some() && resp.unwrap().changed())) && !self.distr.is_none() {
+            //println!("{:?}", self.distr);
             if let Some(bottom) = self.distr.inverse_cdf(0.0001) {
                 if let Some(top) = self.distr.inverse_cdf(0.9999) {
                     let points = (0..=300).into_iter()
