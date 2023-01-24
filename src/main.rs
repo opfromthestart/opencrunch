@@ -1,6 +1,6 @@
 mod distrs;
 
-use distrs::{Normal, TryContinuous, Show};
+use distrs::{Normal, TryContinuous, Show, ChiSquare};
 use egui::{plot::Line, Ui};
 
 
@@ -49,6 +49,7 @@ pub async fn start(canvas_id: &str) -> Result<(), eframe::wasm_bindgen::JsValue>
 enum Distr {
     None, 
     Normal(Normal),
+    ChiSquare(ChiSquare),
 }
 
 impl Distr {
@@ -56,6 +57,7 @@ impl Distr {
         match self {
             Distr::None => None,
             Distr::Normal(n) => n.pdf(x),
+            Distr::ChiSquare(c) => c.pdf(x),
         }
     }
 
@@ -63,6 +65,7 @@ impl Distr {
         match self {
             Distr::None => None,
             Distr::Normal(n) => n.cdf(x),
+            Distr::ChiSquare(c) => c.cdf(x),
         }
     }
 
@@ -70,6 +73,7 @@ impl Distr {
         match self {
             Distr::None => None,
             Distr::Normal(n) => n.inverse_cdf(x),
+            Distr::ChiSquare(c) => c.inverse_cdf(x),
         }
     }
 
@@ -81,6 +85,7 @@ impl Distr {
         match self {
             Distr::None => None,
             Distr::Normal(n) => Some(n.show(ui)),
+            Distr::ChiSquare(c) => Some(c.show(ui)),
         }
     }
 }
@@ -102,6 +107,10 @@ impl eframe::App for OpenCrunch {
         egui::panel::TopBottomPanel::top("Distribution").show(ctx, |ui| {
             if ui.button("Normal").clicked() {
                 self.distr = Distr::Normal(Normal::default());
+                self.graph = vec![];
+            }
+            else if ui.button("Chi Squared").clicked() {
+                self.distr = Distr::ChiSquare(ChiSquare::default());
                 self.graph = vec![];
             }
         });

@@ -142,6 +142,103 @@ impl Normal {
     }
 }
 
+pub(crate) struct ChiSquare {
+    freedom: Option<f64>,
+    xval: Option<f64>,
+    pval: Option<f64>,
+    /// \[freedom, xval, pval\]
+    strings: [String; 4],
+}
+
+impl Default for ChiSquare {
+    fn default() -> Self {
+        Self { freedom: Some(10.0), xval: Some(1.0), pval: None, strings: [
+            "10.0".to_owned(),
+            "1.0".to_owned(),
+            "".to_owned(),
+            "".to_owned(),
+        ] }
+    }
+}
+
+impl TryContinuous for ChiSquare {
+    fn pdf(&self, x: f64) -> Option<f64> {
+        Some(statrs::distribution::ChiSquared::new(self.freedom?).ok()?.pdf(x))
+    }
+
+    fn cdf(&self, x: f64) -> Option<f64> {
+        Some(statrs::distribution::ChiSquared::new(self.freedom?).ok()?.cdf(x))
+    }
+
+    fn inverse_cdf(&self, x: f64) -> Option<f64> {
+        Some(statrs::distribution::ChiSquared::new(self.freedom?).ok()?.inverse_cdf(x))
+    }
+}
+
+impl Show for ChiSquare {
+    fn show(&mut self, ui: &mut Ui) -> egui::Response {
+        let mut resp = ui.num_box("freedom", &mut self.strings[0]);
+        let clear = self.freedom.is_some();
+        let x = ui.num_box("x value", &mut self.strings[1]);
+        if x.changed() && clear && !self.strings[1].is_empty() {
+            self.strings[2] = "".to_owned();
+        }
+        resp = resp.union(x);
+        let p = ui.num_box("prob", &mut self.strings[2]);
+        if p.changed() && clear && !self.strings[2].is_empty() {
+            self.strings[1] = "".to_owned();
+        }
+        resp = resp.union(p);
+        self.freedom = self.strings[0].parse::<f64>().ok();
+        self.xval = self.strings[1].parse::<f64>().ok();
+        self.pval = self.strings[2].parse::<f64>().ok();
+        if ui.button("Calculate").clicked() {
+            if let Err(s) = self.fill() {
+                self.strings[3] = s.to_owned();
+            }
+            else {
+                self.strings[3] = "".to_owned();
+            }
+        }
+        resp = resp.union(ui.label(RichText::new(&self.strings[3]).background_color(Color32::DARK_RED)));
+        resp
+    }
+}
+
+impl ChiSquare {
+    fn fill(&mut self) -> Result<(), &str> {
+        let filled = [self.freedom, self.xval, self.pval].iter().filter(|x| x.is_some()).count();
+        match filled {
+            0..=1 => {
+                return Err("Not enough filled");
+            }
+            2 => {
+                if self.xval.is_none() {
+                    let fill = self.inverse_cdf(self.pval.expect("Xval was only None")).expect("Xval was only None");
+                    self.xval = Some(fill);
+                    self.strings[1] = fill.to_string();
+                }
+                else if self.pval.is_none() {
+                    let fill = self.cdf(self.xval.expect("Pval was only None")).expect("Pval was only None, and distr is ok");
+                    self.pval = Some(fill);
+                    self.strings[2] = fill.to_string();
+                }
+                else if self.freedom.is_none() {
+                    todo!();
+                }
+                else {
+                    unreachable!();
+                }
+                Ok(())
+            }
+            3 => Ok(()),
+            _ => {
+                unreachable!();
+            }
+        }
+    }
+}
+
 trait NumBox {
     fn num_box(&mut self, l: &str, v: &mut String) -> egui::Response;
 }
