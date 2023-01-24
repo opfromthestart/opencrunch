@@ -13,6 +13,10 @@ pub(crate) trait Show {
     fn show(&mut self, ui: &mut Ui) -> egui::Response;
 }
 
+pub(crate) trait Fillable {
+    fn fill(&mut self) -> Result<(), &str>;
+}
+
 fn coerce_numeric(s: &String) -> String {
     s.chars().filter(|c| c.is_ascii_digit() || *c=='.' || *c == '-').collect()
 }
@@ -74,8 +78,8 @@ impl Default for Normal {
             String::from("0.0"),
             String::from("1.0"),
             String::from("0.0"),
-            String::from(""),
-            String::from(""),
+            "".to_string(),
+            "".to_string(),
         ] }
     }
 }
@@ -114,6 +118,7 @@ impl Show for Normal {
         self.xval = self.strings[2].parse::<f64>().ok();
         self.pval = self.strings[3].parse::<f64>().ok();
         if ui.button("Calculate").clicked() {
+            resp.mark_changed();
             if let Err(s) = self.fill() {
                 self.strings[4] = s.to_owned();
             }
@@ -126,7 +131,7 @@ impl Show for Normal {
     }
 }
 
-impl Normal {
+impl Fillable for Normal {
     fn fill(&mut self) -> Result<(), &str> {
         let filled = [self.mean, self.sd, self.xval, self.pval].iter().filter(|x| x.is_some()).count();
         match filled {
@@ -152,11 +157,11 @@ impl Normal {
                     self.strings[0] = fill.to_string();
                 }
                 else if self.sd.is_none() {
-                    let inv = statrs::distribution::Normal::new(0., 1.).expect("SND cant fail").inverse_cdf(self.pval.expect("Mean was only none"));
+                    let inv = statrs::distribution::Normal::new(0., 1.).expect("SND cant fail").inverse_cdf(self.pval.expect("SD was only none"));
                     if inv == 0.0 {
                         return Err("Not enough information, prob must not be 0.5");
                     }
-                    let fill = (self.xval.expect("Mean was only none")-self.mean.expect("SD was only none"))/inv;
+                    let fill = (self.xval.expect("SD was only none")-self.mean.expect("SD was only none"))/inv;
                     if fill < 0.0 {
                         if inv > 0.0 {
                             return Err("Prob > 0.5 but x value is less than the mean")
@@ -235,6 +240,7 @@ impl Show for ChiSquare {
         self.xval = self.strings[1].parse::<f64>().ok();
         self.pval = self.strings[2].parse::<f64>().ok();
         if ui.button("Calculate").clicked() {
+            resp.mark_changed();
             if let Err(s) = self.fill() {
                 self.strings[3] = s.to_owned();
             }
@@ -247,7 +253,7 @@ impl Show for ChiSquare {
     }
 }
 
-impl ChiSquare {
+impl Fillable for ChiSquare {
     fn fill(&mut self) -> Result<(), &str> {
         let filled = [self.freedom, self.xval, self.pval].iter().filter(|x| x.is_some()).count();
         match filled {
@@ -284,6 +290,155 @@ impl ChiSquare {
                 Ok(())
             }
             3 => Ok(()),
+            _ => {
+                unreachable!();
+            }
+        }
+    }
+}
+
+pub(crate) struct TDist {
+    location: Option<f64>,
+    scale: Option<f64>,
+    freedom: Option<f64>,
+    xval: Option<f64>,
+    pval: Option<f64>,
+    /// \[location, scale, freedom, xval, pval\]
+    strings: [String; 6],
+}
+
+impl Default for TDist {
+    fn default() -> Self {
+        Self { freedom: Some(4.0), xval: Some(1.0), pval: None, strings: [
+            "0.0".to_owned(),
+            "1.0".to_owned(),
+            "4.0".to_owned(),
+            "0.0".to_owned(),
+            "".to_string(),
+            "".to_string(),
+        ],
+            location: Some(0.0),
+            scale: Some(1.0), }
+    }
+}
+
+impl TryContinuous for TDist {
+    fn pdf(&self, x: f64) -> Option<f64> {
+        Some(statrs::distribution::StudentsT::new(self.location?, self.scale?, self.freedom?).ok()?.pdf(x))
+    }
+
+    fn cdf(&self, x: f64) -> Option<f64> {
+        Some(statrs::distribution::StudentsT::new(self.location?, self.scale?, self.freedom?).ok()?.cdf(x))
+    }
+
+    fn inverse_cdf(&self, x: f64) -> Option<f64> {
+        Some(statrs::distribution::StudentsT::new(self.location?, self.scale?, self.freedom?).ok()?.inverse_cdf(x))
+    }
+}
+
+impl Show for TDist {
+    fn show(&mut self, ui: &mut Ui) -> egui::Response {
+        let mut resp = ui.num_box("location", &mut self.strings[0]);
+        resp = ui.num_box("scale", &mut self.strings[1]);
+        resp = ui.num_box("freedom", &mut self.strings[2]);
+        let clear = self.location.is_some() && self.scale.is_some() && self.freedom.is_some();
+        let x = ui.num_box("x value", &mut self.strings[3]);
+        if x.changed() && clear && !self.strings[3].is_empty() {
+            self.strings[4] = "".to_owned();
+        }
+        resp = resp.union(x);
+        let p = ui.num_box("prob", &mut self.strings[4]);
+        if p.changed() && clear && !self.strings[4].is_empty() {
+            self.strings[3] = "".to_owned();
+        }
+        resp = resp.union(p);
+        self.location = self.strings[0].parse::<f64>().ok();
+        self.scale = self.strings[1].parse::<f64>().ok();
+        self.freedom = self.strings[2].parse::<f64>().ok();
+        self.xval = self.strings[3].parse::<f64>().ok();
+        self.pval = self.strings[4].parse::<f64>().ok();
+        if ui.button("Calculate").clicked() {
+            resp.mark_changed();
+            if let Err(s) = self.fill() {
+                self.strings[5] = s.to_owned();
+            }
+            else {
+                self.strings[5] = "".to_owned();
+            }
+        }
+        resp = resp.union(ui.label(RichText::new(&self.strings[5]).background_color(Color32::DARK_RED)));
+        resp
+    }
+}
+
+impl Fillable for TDist {
+    fn fill(&mut self) -> Result<(), &str> {
+        let filled = [self.location, self.scale, self.freedom, self.xval, self.pval].iter().filter(|x| x.is_some()).count();
+        match filled {
+            0..=3 => {
+                return Err("Not enough filled");
+            }
+            4 => {
+                if self.xval.is_none() {
+                    let fill = self.inverse_cdf(self.pval.expect("Xval was only None")).expect("Xval was only None");
+                    self.xval = Some(fill);
+                    self.strings[3] = fill.to_string();
+                }
+                else if self.pval.is_none() {
+                    let fill = self.cdf(self.xval.expect("Pval was only None")).expect("Pval was only None, and distr is ok");
+                    self.pval = Some(fill);
+                    self.strings[4] = fill.to_string();
+                }
+                else if self.freedom.is_none() {
+                    let l = self.location.expect("Freedon was only None");
+                    let sc = self.scale.expect("Freedom was only None");
+                    //TODO make this more readable
+                    //TODO fix setting to numbers outside SND
+                    let fill = find_zero(|f| Some(statrs::distribution::StudentsT::new(l, sc, f)
+                    .ok()?.cdf(self.xval.expect("Freedom was only None"))-self.pval.expect("Freedom was only None")));
+                    match fill {
+                        Some(n) => {
+                            self.freedom = Some(n);
+                            self.strings[2] = n.to_string();
+                        },
+                        None => {
+                            return Err("No freedom value found");
+                        },
+                    }
+                }
+                else if self.location.is_none() {
+                    let inv = statrs::distribution::StudentsT::new(0.0, 1.0, self.freedom.expect("Location was only None")).expect("Location was only None").inverse_cdf(self.pval.expect("Location was only None"));
+                    let fill = self.xval.expect("Location was only None") - 
+                        (self.scale.expect("Location was only None")*inv);
+                    self.location = Some(fill);
+                    self.strings[0] = fill.to_string();
+                }
+                else if self.scale.is_none() {
+                    let inv = statrs::distribution::StudentsT::new(0., 1., self.freedom.expect("Scale was only None")).map_err(|x| "Freedom cannot be negative")?.inverse_cdf(self.pval.expect("Scale was only none"));
+                    if inv == 0.0 {
+                        return Err("Not enough information, prob must not be 0.5");
+                    }
+                    let fill = (self.xval.expect("Scale was only none")-self.location.expect("Scale was only none"))/inv;
+                    if fill < 0.0 {
+                        if inv > 0.0 {
+                            return Err("Prob > 0.5 but x value is less than the location")
+                        }
+                        else {
+                            return Err("Prob < 0.5 but x value is greater than the location")
+                        }
+                    }
+                    if fill == 0.0 {
+                        return Err("Not enough information, location and x value are the same")
+                    }
+                    self.scale = Some(fill);
+                    self.strings[1] = fill.to_string();
+                }
+                else {
+                    unreachable!();
+                }
+                Ok(())
+            }
+            5 => Ok(()),
             _ => {
                 unreachable!();
             }

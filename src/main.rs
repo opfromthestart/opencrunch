@@ -1,6 +1,6 @@
 mod distrs;
 
-use distrs::{Normal, TryContinuous, Show, ChiSquare};
+use distrs::{Normal, TryContinuous, Show, ChiSquare, TDist};
 use egui::{plot::Line, Ui};
 
 
@@ -50,6 +50,7 @@ enum Distr {
     None, 
     Normal(Normal),
     ChiSquare(ChiSquare),
+    TDist(TDist)
 }
 
 impl Distr {
@@ -58,6 +59,7 @@ impl Distr {
             Distr::None => None,
             Distr::Normal(n) => n.pdf(x),
             Distr::ChiSquare(c) => c.pdf(x),
+            Distr::TDist(t) => t.pdf(x),
         }
     }
 
@@ -66,6 +68,7 @@ impl Distr {
             Distr::None => None,
             Distr::Normal(n) => n.cdf(x),
             Distr::ChiSquare(c) => c.cdf(x),
+            Distr::TDist(t) => t.cdf(x),
         }
     }
 
@@ -74,6 +77,7 @@ impl Distr {
             Distr::None => None,
             Distr::Normal(n) => n.inverse_cdf(x),
             Distr::ChiSquare(c) => c.inverse_cdf(x),
+            Distr::TDist(t) => t.inverse_cdf(x),
         }
     }
 
@@ -86,6 +90,7 @@ impl Distr {
             Distr::None => None,
             Distr::Normal(n) => Some(n.show(ui)),
             Distr::ChiSquare(c) => Some(c.show(ui)),
+            Distr::TDist(t) => Some(t.show(ui)),
         }
     }
 }
@@ -105,6 +110,7 @@ impl eframe::App for OpenCrunch {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
 
         egui::panel::TopBottomPanel::top("Distribution").show(ctx, |ui| {
+            ui.horizontal(|ui| {
             if ui.button("Normal").clicked() {
                 self.distr = Distr::Normal(Normal::default());
                 self.graph = vec![];
@@ -113,6 +119,11 @@ impl eframe::App for OpenCrunch {
                 self.distr = Distr::ChiSquare(ChiSquare::default());
                 self.graph = vec![];
             }
+            else if ui.button("T Distribution").clicked() {
+                self.distr = Distr::TDist(TDist::default());
+                self.graph = vec![];
+            }
+            });
         });
 
         let resp = egui::panel::TopBottomPanel::bottom("Interactive").show(ctx, |ui| {
