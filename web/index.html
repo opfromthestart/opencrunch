@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <style>
+        html {
+            /* Remove touch delay: */
+            touch-action: manipulation;
+        }
+
+        html,
+        body {
+            overflow: hidden;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+
+        /* Position canvas in center-top: 
+        canvas {
+            margin-right: auto;
+            margin-left: auto;
+            display: block;
+            position: absolute;
+            top: 0%;
+            left: 50%;
+            transform: translate(-50%, 0%);
+        }*/
+    </style>
+    <head>
+        <title>OpenCrunch</title>
+    </head>
+    <body>
+        <canvas id="win" style="height: 100%; width: 100%">
+        </canvas>
+        <script src="/opencrunch.js"></script>
+        <script>
+            delete WebAssembly.instantiateStreaming;
+            wasm_bindgen("/opencrunch_bg.wasm").then(function(wasm){
+                console.debug("Started");
+                wasm_bindgen.start("win");
+                console.debug("Done");
+            }).catch(function(e) {console.log("error "+e)});
+        </script>
+    </body>
+</html>

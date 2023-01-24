@@ -3,10 +3,9 @@ mod distrs;
 use distrs::{Normal, TryContinuous, Show};
 use egui::{plot::Line, Ui};
 
-// When compiling natively:
+
+#[cfg(not(target_arch = "wasm32"))]
 fn main() {
-    // Log to stdout (if you run with `RUST_LOG=debug`).
-    //tracing_subscriber::fmt::init();
 
     let native_options = eframe::NativeOptions::default();
     eframe::run_native(
@@ -14,6 +13,37 @@ fn main() {
         native_options,
         Box::new(|_| Box::new(OpenCrunch{ distr: Distr::None, graph: vec![] })),
     );
+}
+
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn log(s: &str) {
+    println!("{}", s);
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub async fn start(canvas_id: &str) -> Result<(), eframe::wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    tracing_wasm::set_as_global_default();
+    let web_options = eframe::WebOptions::default();
+    //log(&format!("Got id {}", canvas_id));
+    //let x: Option<u32> = None;
+    //x.unwrap();
+    eframe::start_web(canvas_id, web_options, Box::new(|_| Box::new(OpenCrunch{ distr: Distr::None, graph: vec![] }))).await?;
+    Ok(())
 }
 
 enum Distr {

@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.65"
 
-
 [dependencies]
 egui = "0.20.0"
 eframe = { version = "0.20.0", default-features = false, features = [
@@ -13,3 +12,10 @@ eframe = { version = "0.20.0", default-features = false, features = [
     "glow",          # Use the glow rendering backend. Alternative: "wgpu".
 ] }
 statrs = "0.16.0"
+getrandom = {version = "0.2.8", features = ["js"]}
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.0"
+wasm-bindgen-futures = "0.4.0"
+console_error_panic_hook = "0.1.6"
+tracing-wasm = "0.2"

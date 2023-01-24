@@ -1,6 +1,8 @@
 use egui::{Ui, RichText, Color32};
 use statrs::distribution::{Continuous, ContinuousCDF};
 
+use crate::log;
+
 pub(crate) trait TryContinuous {
     fn pdf(&self, x: f64) -> Option<f64>;
     fn cdf(&self, x: f64) -> Option<f64>;
@@ -171,14 +173,14 @@ trait Constraint {
         }
         let Some(target) = self.solv().iter().zip((0..Self::SIZE).map(|i| self.get_field(i)))
             .position(|(b, field)| *b && field.is_ok()) else {
-            eprintln!("No field to use to solve");
+            log("No field to use to solve");
             return;
         };
         for field in 0..Self::SIZE {
             if matches!(self.get_field(field), Err(ConstrErr::IsNone)) {
                 if self.solv()[field] {
-                    eprintln!("Not enough information");
-                    eprintln!("Field {field} should have been filled");
+                    log("Not enough information");
+                    log("Field {field} should have been filled");
                     return;
                 }
                 let mut low = self.field_default(field).unwrap_or(0.0);
