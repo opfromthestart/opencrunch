@@ -17,6 +17,48 @@ fn coerce_numeric(s: &String) -> String {
     s.chars().filter(|c| c.is_ascii_digit() || *c=='.' || *c == '-').collect()
 }
 
+fn find_zero(f: impl Fn(f64) -> Option<f64>) -> Option<f64> {
+    let mut high = 1.0;
+    let mut low = -1.0;
+    if f(high).is_none() && f(low).is_none() {
+        return None
+    }
+    while f(high).is_none() {
+        high = 0.9*high+0.1*low;
+    }
+    while f(low).is_none() {
+        low = 0.9*low+0.1*high;
+    }
+    let f = |x| f(x).expect("Both set to not none");
+    if f(high).signum() == f(low).signum() {
+        loop {
+            high = high + high;
+            if f(high).signum() != f(low).signum() {
+                break;
+            }
+            low = low + low;
+            if f(high).signum() != f(low).signum() {
+                break;
+            }
+            if high.is_infinite() || low.is_infinite() {
+                return None;
+            }
+        }
+    }
+    if f(high).signum() == -1.0 {
+        (high, low) = (low, high);
+    }
+    while (high-low) > 0.0000001 {
+        if f((high+low)/2.0) > 0.0 {
+            high = (high+low)/2.0;
+        }
+        else {
+            low = (high+low)/2.0;
+        }
+    }
+    Some((high+low)/2.0)
+}
+
 pub(crate) struct Normal{
     mean: Option<f64>,
     sd: Option<f64>,
@@ -224,7 +266,17 @@ impl ChiSquare {
                     self.strings[2] = fill.to_string();
                 }
                 else if self.freedom.is_none() {
-                    todo!();
+                    let fill = find_zero(|f| Some(statrs::distribution::ChiSquared::new(f)
+                    .ok()?.cdf(self.xval.expect("Freedom was only None"))-self.pval.expect("Freedom was only None")));
+                    match fill {
+                        Some(n) => {
+                            self.freedom = Some(n);
+                            self.strings[0] = n.to_string();
+                        },
+                        None => {
+                            return Err("No freedom value found");
+                        },
+                    }
                 }
                 else {
                     unreachable!();
