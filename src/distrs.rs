@@ -1,24 +1,18 @@
-use egui::{Ui, RichText, Color32};
-use statrs::{distribution::{Continuous, ContinuousCDF}, assert_almost_eq};
+use std::fs::File;
 
-use crate::log;
+use egui::{Ui, RichText, Color32, Widget, plot::Line, ComboBox};
+use statrs::distribution::{Continuous, ContinuousCDF};
 
-pub(crate) trait TryContinuous {
+use crate::{log, empty_resp, NumBox, Comp};
+
+trait TryContinuous {
     fn pdf(&self, x: f64) -> Option<f64>;
     fn cdf(&self, x: f64) -> Option<f64>;
     fn inverse_cdf(&self, x: f64) -> Option<f64>;
 }
 
-pub(crate) trait Show {
-    fn show(&mut self, ui: &mut Ui) -> egui::Response;
-}
-
-pub(crate) trait Fillable {
+trait Fillable {
     fn fill(&mut self) -> Result<(), &str>;
-}
-
-fn coerce_numeric(s: &String) -> String {
-    s.chars().filter(|c| c.is_ascii_digit() || *c=='.' || *c == '-').collect()
 }
 
 fn find_zero(f: impl Fn(f64) -> Option<f64>) -> Option<f64> {
@@ -83,14 +77,138 @@ fn find_zero(f: impl Fn(f64) -> Option<f64>) -> Option<f64> {
     Some((high+low)/2.0)
 }
 
-#[derive(Debug)]
-pub(crate) struct Normal{
+#[derive(Clone)]
+pub(crate) struct OpenCrunchCDistr{
+    distr: CDistr,
+    graph: Vec<[f64;2]>,
+}
+
+impl Default for OpenCrunchCDistr {
+    fn default() -> Self {
+        Self { distr: CDistr::None, graph: vec![] }
+    }
+}
+
+impl Widget for &mut OpenCrunchCDistr {
+
+    fn ui(self, ui: &mut Ui) -> egui::Response {
+        let ctx = ui.ctx();
+
+        egui::panel::TopBottomPanel::top("Distribution").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+            if ui.button("Normal").clicked() {
+                self.distr = CDistr::Normal(Normal::default());
+                self.graph = vec![];
+            }
+            if ui.button("Chi Squared").clicked() {
+                self.distr = CDistr::ChiSquare(ChiSquare::default());
+                self.graph = vec![];
+            }
+            if ui.button("T Distribution").clicked() {
+                self.distr = CDistr::TDist(TDist::default());
+                self.graph = vec![];
+            }
+            });
+        });
+
+        for file in &ctx.input().raw.dropped_files {
+            let path = file.path.clone().unwrap();
+            let len = File::open(path.clone()).unwrap().metadata().unwrap().len();
+            let name = path.file_name().unwrap().to_str().unwrap();
+            eprintln!("{}: {}", name, len);
+        }
+
+        let resp = egui::panel::TopBottomPanel::bottom("Interactive").show(ctx, |ui| {
+            ui.add(&mut self.distr)
+        }).inner;
+
+        if (self.graph.is_empty() || resp.changed()) && !self.distr.is_none() {
+            //println!("{:?}", self.distr);
+            if let Some(bottom) = self.distr.inverse_cdf(0.0001) {
+                if let Some(top) = self.distr.inverse_cdf(0.9999) {
+                    let points = (0..=300).into_iter()
+                        .map(|x| (bottom + (top-bottom)*((x as f64)/300.)))
+                        .map(|x| [x, self.distr.pdf(x).expect("distribution is not none")]).collect();
+                    self.graph = points;
+                }
+                else {
+                    self.graph = vec![];
+                }
+            }
+            else {
+                self.graph = vec![];
+            }
+        }
+        let line = Line::new(self.graph.clone());
+        egui::panel::CentralPanel::default().show(ctx, |ui| {
+            eframe::egui::widgets::plot::Plot::new("Main").show(ui, |ui| {
+                ui.line(line);
+            });
+        }).response
+    }
+}
+
+#[derive(Debug, Clone)]
+enum CDistr {
+    None, 
+    Normal(Normal),
+    ChiSquare(ChiSquare),
+    TDist(TDist)
+}
+
+impl CDistr {
+    fn pdf(&self, x: f64) -> Option<f64> {
+        match self {
+            CDistr::None => None,
+            CDistr::Normal(n) => n.pdf(x),
+            CDistr::ChiSquare(c) => c.pdf(x),
+            CDistr::TDist(t) => t.pdf(x),
+        }
+    }
+
+    fn cdf(&self, x: f64) -> Option<f64> {
+        match self {
+            CDistr::None => None,
+            CDistr::Normal(n) => n.cdf(x),
+            CDistr::ChiSquare(c) => c.cdf(x),
+            CDistr::TDist(t) => t.cdf(x),
+        }
+    }
+
+    fn inverse_cdf(&self, x: f64) -> Option<f64> {
+        match self {
+            CDistr::None => None,
+            CDistr::Normal(n) => n.inverse_cdf(x),
+            CDistr::ChiSquare(c) => c.inverse_cdf(x),
+            CDistr::TDist(t) => t.inverse_cdf(x),
+        }
+    }
+
+    fn is_none(&self) -> bool {
+        matches!(self, CDistr::None)
+    }
+}
+
+impl Widget for &mut CDistr {
+    fn ui(self, ui: &mut Ui) -> egui::Response {
+            match self {
+                CDistr::None => empty_resp(ui),
+                CDistr::Normal(n) => n.ui(ui),
+                CDistr::ChiSquare(c) => c.ui(ui),
+                CDistr::TDist(t) => t.ui(ui),
+            }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Normal{
     mean: Option<f64>,
     sd: Option<f64>,
     xval: Option<f64>,
     pval: Option<f64>,
-    /// \[mean, sd, xval, pval, error\]
-    strings: [String; 5],
+    comp: Comp,
+    /// \[mean, sd, xval, pval, comp, error\]
+    strings: [String; 6],
 }
 
 impl Default for Normal {
@@ -100,8 +218,10 @@ impl Default for Normal {
             String::from("1.0"),
             String::from("0.0"),
             "".to_string(),
+            "<=".to_string(),
             "".to_string(),
-        ] }
+        ],
+            comp: Comp::LE, }
     }
 }
 
@@ -119,8 +239,8 @@ impl TryContinuous for Normal {
     }
 }
 
-impl Show for Normal {
-    fn show(&mut self, ui: &mut Ui) -> egui::Response {
+impl Widget for &mut Normal {
+    fn ui(self, ui: &mut Ui) -> egui::Response {
         let mut resp = ui.num_box("mean", &mut self.strings[0]);
         resp = resp.union(ui.num_box("std dev", &mut self.strings[1]));
         let clear = self.mean.is_some() && self.sd.is_some();
@@ -129,25 +249,32 @@ impl Show for Normal {
             self.strings[3] = "".to_owned();
         }
         resp = resp.union(x);
+        resp = resp.union(ui.text_edit_singleline(&mut self.strings[4]));
         let p = ui.num_box("prob", &mut self.strings[3]);
         if p.changed() && clear && !self.strings[3].is_empty() {
             self.strings[2] = "".to_owned();
         }
         resp = resp.union(p);
-        self.mean = self.strings[0].parse::<f64>().ok();
-        self.sd = self.strings[1].parse::<f64>().ok();
-        self.xval = self.strings[2].parse::<f64>().ok();
-        self.pval = self.strings[3].parse::<f64>().ok();
-        if ui.button("Calculate").clicked() {
-            resp.mark_changed();
-            if let Err(s) = self.fill() {
-                self.strings[4] = s.to_owned();
-            }
-            else {
-                self.strings[4] = "".to_owned();
+        if resp.changed() {
+            self.mean = self.strings[0].parse().ok();
+            self.sd = self.strings[1].parse().ok();
+            self.xval = self.strings[2].parse().ok();
+            self.pval = self.strings[3].parse().ok();
+            if let Ok(comp) = self.strings[4].parse() {
+                self.comp = comp;
             }
         }
-        resp = resp.union(ui.label(RichText::new(&self.strings[4]).background_color(Color32::DARK_RED)));
+        if ui.button("Calculate").clicked() {
+            self.strings[4] = self.comp.to_string();
+            resp.mark_changed();
+            if let Err(s) = self.fill() {
+                self.strings[5] = s.to_owned();
+            }
+            else {
+                self.strings[5] = "".to_owned();
+            }
+        }
+        resp = resp.union(ui.label(RichText::new(&self.strings[5]).background_color(Color32::DARK_RED)));
         resp
     }
 }
@@ -161,28 +288,72 @@ impl Fillable for Normal {
             }
             3 => {
                 if self.xval.is_none() {
-                    let fill = self.inverse_cdf(self.pval.expect("Xval was only None")).expect("Xval was only None");
+                    let p = match self.comp {
+                        Comp::GE | Comp::GT => {
+                            1.0-self.pval.expect("Xval was only None")
+                        },
+                        Comp::LE | Comp::LT => {
+                            self.pval.expect("Xval was only None")
+                        },
+                        _ => {
+                            return Err("Cannot use exact in a continuous distribution.");
+                        }
+                    };
+                    let fill = self.inverse_cdf(p).expect("Xval was only None");
                     self.xval = Some(fill);
                     self.strings[2] = fill.to_string();
                 }
                 else if self.pval.is_none() {
                     let fill = self.cdf(self.xval.expect("Pval was only None")).expect("Pval was only None, and distr is ok");
+                    let fill = match self.comp {
+                        Comp::GE | Comp::GT => {
+                            1.0-fill
+                        },
+                        Comp::LE | Comp::LT => {
+                            fill
+                        },
+                        _ => {
+                            return Err("Cannot use exact in a continuous distribution.");
+                        }
+                    };
                     self.pval = Some(fill);
                     self.strings[3] = fill.to_string();
                 }
                 else if self.mean.is_none() {
-                    let inv = statrs::distribution::Normal::new(0., 1.).expect("SND cant fail").inverse_cdf(self.pval.expect("Mean was only none"));
+                    let p = match self.comp {
+                        Comp::GE | Comp::GT => {
+                            1.0-self.pval.expect("Mean was only None")
+                        },
+                        Comp::LE | Comp::LT => {
+                            self.pval.expect("Mean was only None")
+                        },
+                        _ => {
+                            return Err("Cannot use exact in a continuous distribution.");
+                        }
+                    };
+                    let inv = statrs::distribution::Normal::new(0., 1.).expect("SND cant fail").inverse_cdf(p);
                     let fill = self.xval.expect("Mean was only none") - 
                         (self.sd.expect("Mean was only none")*inv);
                     self.mean = Some(fill);
                     self.strings[0] = fill.to_string();
                 }
                 else if self.sd.is_none() {
-                    let inv = statrs::distribution::Normal::new(0., 1.).expect("SND cant fail").inverse_cdf(self.pval.expect("SD was only none"));
+                    let p = match self.comp {
+                        Comp::GE | Comp::GT => {
+                            1.0-self.pval.expect("SD was only None")
+                        },
+                        Comp::LE | Comp::LT => {
+                            self.pval.expect("SD was only None")
+                        },
+                        _ => {
+                            return Err("Cannot use exact in a continuous distribution.");
+                        }
+                    };
+                    let inv = statrs::distribution::Normal::new(0., 1.).expect("SND cant fail").inverse_cdf(p);
                     if inv == 0.0 {
                         return Err("Not enough information, prob must not be 0.5");
                     }
-                    let fill = (self.xval.expect("SD was only none")-self.mean.expect("SD was only none"))/inv;
+                    let fill = (self.xval.expect("SD was only None")-self.mean.expect("SD was only None"))/inv;
                     if fill < 0.0 {
                         if inv > 0.0 {
                             return Err("Prob > 0.5 but x value is less than the mean")
@@ -210,8 +381,8 @@ impl Fillable for Normal {
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct ChiSquare {
+#[derive(Debug, Clone)]
+struct ChiSquare {
     freedom: Option<f64>,
     xval: Option<f64>,
     pval: Option<f64>,
@@ -244,8 +415,8 @@ impl TryContinuous for ChiSquare {
     }
 }
 
-impl Show for ChiSquare {
-    fn show(&mut self, ui: &mut Ui) -> egui::Response {
+impl Widget for &mut ChiSquare {
+    fn ui(self, ui: &mut Ui) -> egui::Response {
         let mut resp = ui.num_box("freedom", &mut self.strings[0]);
         let clear = self.freedom.is_some();
         let x = ui.num_box("x value", &mut self.strings[1]);
@@ -258,9 +429,11 @@ impl Show for ChiSquare {
             self.strings[1] = "".to_owned();
         }
         resp = resp.union(p);
-        self.freedom = self.strings[0].parse::<f64>().ok();
-        self.xval = self.strings[1].parse::<f64>().ok();
-        self.pval = self.strings[2].parse::<f64>().ok();
+        if resp.changed() {
+            self.freedom = self.strings[0].parse().ok();
+            self.xval = self.strings[1].parse().ok();
+            self.pval = self.strings[2].parse().ok();
+        }
         if ui.button("Calculate").clicked() {
             resp.mark_changed();
             if let Err(s) = self.fill() {
@@ -319,8 +492,8 @@ impl Fillable for ChiSquare {
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct TDist {
+#[derive(Debug, Clone)]
+struct TDist {
     location: Option<f64>,
     scale: Option<f64>,
     freedom: Option<f64>,
@@ -359,11 +532,11 @@ impl TryContinuous for TDist {
     }
 }
 
-impl Show for TDist {
-    fn show(&mut self, ui: &mut Ui) -> egui::Response {
+impl Widget for &mut TDist {
+    fn ui(self, ui: &mut Ui) -> egui::Response {
         let mut resp = ui.num_box("location", &mut self.strings[0]);
-        resp = ui.num_box("scale", &mut self.strings[1]);
-        resp = ui.num_box("freedom", &mut self.strings[2]);
+        resp = resp.union(ui.num_box("scale", &mut self.strings[1]));
+        resp = resp.union(ui.num_box("freedom", &mut self.strings[2]));
         let clear = self.location.is_some() && self.scale.is_some() && self.freedom.is_some();
         let x = ui.num_box("x value", &mut self.strings[3]);
         if x.changed() && clear && !self.strings[3].is_empty() {
@@ -375,11 +548,13 @@ impl Show for TDist {
             self.strings[3] = "".to_owned();
         }
         resp = resp.union(p);
-        self.location = self.strings[0].parse::<f64>().ok();
-        self.scale = self.strings[1].parse::<f64>().ok();
-        self.freedom = self.strings[2].parse::<f64>().ok();
-        self.xval = self.strings[3].parse::<f64>().ok();
-        self.pval = self.strings[4].parse::<f64>().ok();
+        if resp.changed() {
+            self.location = self.strings[0].parse().ok();
+            self.scale = self.strings[1].parse().ok();
+            self.freedom = self.strings[2].parse().ok();
+            self.xval = self.strings[3].parse().ok();
+            self.pval = self.strings[4].parse().ok();
+        }
         if ui.button("Calculate").clicked() {
             resp.mark_changed();
             if let Err(s) = self.fill() {
@@ -482,31 +657,6 @@ impl Fillable for TDist {
                 unreachable!();
             }
         }
-    }
-}
-
-trait NumBox {
-    fn num_box(&mut self, l: &str, v: &mut String) -> egui::Response;
-}
-
-impl NumBox for Ui {
-    fn num_box(&mut self, l: &str, v: &mut String) -> egui::Response {
-        self.horizontal(|ui| {
-            ui.label(l);
-            /*
-            let resp = if v.is_empty() || v.parse::<f64>().is_ok() {
-                ui.text_edit_singleline(v)
-            }
-            else {
-                let mut resp = ui.text_edit_singleline(v);
-                resp = resp.union(ui.label(RichText::new("Invalid").color(Color32::DARK_RED)));
-                resp
-            };
-            */
-            let resp = ui.text_edit_singleline(v);
-            *(v) = coerce_numeric(v);
-            resp
-        }).inner
     }
 }
 

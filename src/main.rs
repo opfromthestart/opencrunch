@@ -1,9 +1,12 @@
 mod distrs;
+mod calcs;
 
-use std::fs::File;
+use std::str::FromStr;
 
-use distrs::{Normal, TryContinuous, Show, ChiSquare, TDist};
-use egui::{plot::Line, Ui};
+use calcs::OpenCrunchSample;
+use distrs::OpenCrunchCDistr;
+use eframe::App;
+use egui::{Ui, Rect, Id, Sense};
 
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -13,7 +16,7 @@ fn main() {
     eframe::run_native(
         "OpenCrunch",
         native_options,
-        Box::new(|_| Box::new(OpenCrunch{ distr: Distr::None, graph: vec![] })),
+        Box::new(|_| Box::new(OpenCrunch::default())),
     );
 }
 
@@ -44,124 +47,122 @@ pub async fn start(canvas_id: &str) -> Result<(), eframe::wasm_bindgen::JsValue>
     //log(&format!("Got id {}", canvas_id));
     //let x: Option<u32> = None;
     //x.unwrap();
-    eframe::start_web(canvas_id, web_options, Box::new(|_| Box::new(OpenCrunch{ distr: Distr::None, graph: vec![] }))).await?;
+    eframe::start_web(canvas_id, web_options, Box::new(|_| Box::new(OpenCrunchCDistr::default()))).await?;
     Ok(())
 }
 
-#[derive(Debug)]
-enum Distr {
-    None, 
-    Normal(Normal),
-    ChiSquare(ChiSquare),
-    TDist(TDist)
+#[derive(Default)]
+enum Active {
+    CDistr,
+    Sample,
+    #[default]
+    None,
 }
 
-impl Distr {
-    fn pdf(&self, x: f64) -> Option<f64> {
-        match self {
-            Distr::None => None,
-            Distr::Normal(n) => n.pdf(x),
-            Distr::ChiSquare(c) => c.pdf(x),
-            Distr::TDist(t) => t.pdf(x),
-        }
-    }
-
-    fn cdf(&self, x: f64) -> Option<f64> {
-        match self {
-            Distr::None => None,
-            Distr::Normal(n) => n.cdf(x),
-            Distr::ChiSquare(c) => c.cdf(x),
-            Distr::TDist(t) => t.cdf(x),
-        }
-    }
-
-    fn inverse_cdf(&self, x: f64) -> Option<f64> {
-        match self {
-            Distr::None => None,
-            Distr::Normal(n) => n.inverse_cdf(x),
-            Distr::ChiSquare(c) => c.inverse_cdf(x),
-            Distr::TDist(t) => t.inverse_cdf(x),
-        }
-    }
-
-    fn is_none(&self) -> bool {
-        matches!(self, Distr::None)
-    }
-
-    fn show_inputs(&mut self, ui: &mut Ui) -> Option<egui::Response> {
-        match self {
-            Distr::None => None,
-            Distr::Normal(n) => Some(n.show(ui)),
-            Distr::ChiSquare(c) => Some(c.show(ui)),
-            Distr::TDist(t) => Some(t.show(ui)),
-        }
-    }
+#[derive(Default)]
+struct OpenCrunch {
+    cdistr: OpenCrunchCDistr,
+    sample: OpenCrunchSample,
+    active: Active,
 }
 
-struct OpenCrunch{
-    distr: Distr,
-    graph: Vec<[f64;2]>,
-}
-
-impl Default for OpenCrunch {
-    fn default() -> Self {
-        Self { distr: Distr::None, graph: vec![] }
-    }
-}
-
-impl eframe::App for OpenCrunch {
+impl App for OpenCrunch {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-
-        egui::panel::TopBottomPanel::top("Distribution").show(ctx, |ui| {
+        egui::panel::TopBottomPanel::top("Tabs").show(ctx, |ui| {
             ui.horizontal(|ui| {
-            if ui.button("Normal").clicked() {
-                self.distr = Distr::Normal(Normal::default());
-                self.graph = vec![];
-            }
-            else if ui.button("Chi Squared").clicked() {
-                self.distr = Distr::ChiSquare(ChiSquare::default());
-                self.graph = vec![];
-            }
-            else if ui.button("T Distribution").clicked() {
-                self.distr = Distr::TDist(TDist::default());
-                self.graph = vec![];
-            }
+                if ui.button("Distributions").clicked() {
+                    self.active = Active::CDistr;
+                }
+                if ui.button("Calculations").clicked() {
+                    self.active = Active::Sample;
+                }
             });
         });
 
-        for file in &ctx.input().raw.dropped_files {
-            let path = file.path.clone().unwrap();
-            let len = File::open(path.clone()).unwrap().metadata().unwrap().len();
-            let name = path.file_name().unwrap().to_str().unwrap();
-            eprintln!("{}: {}", name, len);
+        match self.active {
+            Active::CDistr => {
+                egui::panel::CentralPanel::default().show(ctx, |ui| {
+                    ui.add(&mut self.cdistr);
+                });
+            },
+            Active::Sample => {
+                egui::panel::CentralPanel::default().show(ctx, |ui| {
+                    ui.add(&mut self.sample);
+                });
+            },
+            Active::None => {},
         }
+    }
+}
 
-        let resp = egui::panel::TopBottomPanel::bottom("Interactive").show(ctx, |ui| {
-            self.distr.show_inputs(ui)
-        }).inner;
+pub(crate) fn empty_resp(ui: &Ui) -> egui::Response {
+    ui.interact(Rect::everything_above(0.0), Id::new("none"), Sense::click())
+}
 
-        if (self.graph.is_empty() || (resp.is_some() && resp.unwrap().changed())) && !self.distr.is_none() {
-            //println!("{:?}", self.distr);
-            if let Some(bottom) = self.distr.inverse_cdf(0.0001) {
-                if let Some(top) = self.distr.inverse_cdf(0.9999) {
-                    let points = (0..=300).into_iter()
-                        .map(|x| (bottom + (top-bottom)*((x as f64)/300.)))
-                        .map(|x| [x, self.distr.pdf(x).expect("distribution is not none")]).collect();
-                    self.graph = points;
-                }
-                else {
-                    self.graph = vec![];
-                }
+fn coerce_numeric(s: &String) -> String {
+    s.chars().filter(|c| c.is_ascii_digit() || *c=='.' || *c == '-').collect()
+}
+
+trait NumBox {
+    fn num_box(&mut self, l: &str, v: &mut String) -> egui::Response;
+}
+
+impl NumBox for Ui {
+    fn num_box(&mut self, l: &str, v: &mut String) -> egui::Response {
+        self.horizontal(|ui| {
+            ui.label(l);
+            /*
+            let resp = if v.is_empty() || v.parse::<f64>().is_ok() {
+                ui.text_edit_singleline(v)
             }
             else {
-                self.graph = vec![];
-            }
+                let mut resp = ui.text_edit_singleline(v);
+                resp = resp.union(ui.label(RichText::new("Invalid").color(Color32::DARK_RED)));
+                resp
+            };
+            */
+            let resp = ui.text_edit_singleline(v);
+            *(v) = coerce_numeric(v);
+            resp
+        }).inner
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum Comp {
+    GE,
+    LE,
+    GT,
+    LT,
+    EQ,
+    NE,
+}
+
+impl FromStr for Comp {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            ">=" => Ok(Self::GE),
+            "<=" => Ok(Self::LE),
+            ">" => Ok(Self::GT),
+            "<" => Ok(Self::LT),
+            "=" | "==" => Ok(Self::EQ),
+            "!=" => Ok(Self::NE),
+            _ => Err("Not a valid comparison"),
         }
-        let line = Line::new(self.graph.clone());
-        egui::panel::CentralPanel::default().show(ctx, |ui| {
-            eframe::egui::widgets::plot::Plot::new("Main").show(ui, |ui| {
-                ui.line(line);
-            });
-        });
+    }
+}
+
+impl ToString for Comp {
+    fn to_string(&self) -> String {
+        match self {
+            Comp::GE => ">=".to_owned(),
+            Comp::LE => "<=".to_owned(),
+            Comp::GT => ">".to_owned(),
+            Comp::LT => "<".to_owned(),
+            Comp::EQ => "=".to_owned(),
+            Comp::NE => "!=".to_owned(),
+        }
     }
 }
