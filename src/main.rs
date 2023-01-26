@@ -54,7 +54,7 @@ pub async fn start(canvas_id: &str) -> Result<(), eframe::wasm_bindgen::JsValue>
 #[derive(Default)]
 enum Active {
     CDistr,
-    Sample,
+    Calcs,
     #[default]
     None,
 }
@@ -74,7 +74,7 @@ impl App for OpenCrunch {
                     self.active = Active::CDistr;
                 }
                 if ui.button("Calculations").clicked() {
-                    self.active = Active::Sample;
+                    self.active = Active::Calcs;
                 }
             });
         });
@@ -85,7 +85,7 @@ impl App for OpenCrunch {
                     ui.add(&mut self.cdistr);
                 });
             },
-            Active::Sample => {
+            Active::Calcs => {
                 egui::panel::CentralPanel::default().show(ctx, |ui| {
                     ui.add(&mut self.sample);
                 });
@@ -163,6 +163,19 @@ impl ToString for Comp {
             Comp::LT => "<".to_owned(),
             Comp::EQ => "=".to_owned(),
             Comp::NE => "!=".to_owned(),
+        }
+    }
+}
+
+impl Comp {
+    fn comp<T : PartialOrd + PartialEq>(&self, left: T, right: T) -> bool {
+        match self {
+            Comp::GE => left >= right,
+            Comp::LE => left <= right,
+            Comp::GT => left > right,
+            Comp::LT => left < right,
+            Comp::EQ => left == right,
+            Comp::NE => left != right,
         }
     }
 }

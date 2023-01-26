@@ -1,29 +1,36 @@
 use egui::{Widget, Ui};
-use statrs::distribution::{Normal, ContinuousCDF};
+use statrs::{distribution::{Normal, ContinuousCDF}, function};
 
 use crate::{empty_resp, NumBox, Comp};
 
 #[derive(Default, Clone)]
-enum Sample {
+enum Calcs {
     #[default]
     None,
-    Inf(SampleProbInf),
+    SampInf(SampleProbInf),
+    Comb(Comb),
 }
 
 #[derive(Default)]
 pub(crate) struct OpenCrunchSample{
-    sample: Sample
+    sample: Calcs
 }
 
 impl Widget for &mut OpenCrunchSample {
     fn ui(self, ui: &mut Ui) -> egui::Response {
-        if ui.button("Probability of Sample").clicked() {
-            self.sample = Sample::Inf(SampleProbInf::default());
-        }
+        ui.horizontal(|ui| {
+            if ui.button("Probability of Sample").clicked() {
+                self.sample = Calcs::SampInf(SampleProbInf::default());
+            }
+            if ui.button("Comb/Perm").clicked() {
+                self.sample = Calcs::Comb(Comb::default());
+            }
+        });
 
         match &mut self.sample {
-            Sample::None => {empty_resp(ui)},
-            Sample::Inf(sam) => {ui.add(sam)},
+            Calcs::None => {empty_resp(ui)},
+            Calcs::SampInf(sam) => {ui.add(sam)},
+            Calcs::Comb(c) => ui.add(c),
         }
     }
 }
@@ -110,6 +117,42 @@ impl Widget for &mut SampleProbInf {
                 },
             }
         }
+        resp
+    }
+}
+
+#[derive(Clone)]
+struct Comb {
+    strings: [String; 4],
+}
+
+impl Default for Comb {
+    fn default() -> Self {
+        Self { strings: [
+            "1".to_string(),
+            "1".to_string(),
+            "1".to_string(),
+            "1".to_string(),
+        ] }
+    }
+}
+
+impl Widget for &mut Comb {
+    fn ui(self, ui: &mut Ui) -> egui::Response {
+        let mut resp = ui.num_box("N", &mut self.strings[0]);
+        resp = resp.union(ui.num_box("R", &mut self.strings[1]));
+        if resp.changed() {
+            if let Ok(n) = self.strings[0].parse::<f64>() {
+                if let Ok(r) = self.strings[1].parse::<f64>() {
+                    let perm = function::gamma::gamma(n+1.0)/function::gamma::gamma(n-r+1.0);
+                    let comb = perm/function::gamma::gamma(r+1.0);
+                    self.strings[2] = (perm.round() as usize).to_string();
+                    self.strings[3] = (comb.round() as usize).to_string();
+                }
+            }
+        }
+        ui.num_box("Permutations", &mut (self.strings[2].clone()));
+        ui.num_box("Combinations", &mut (self.strings[3].clone()));
         resp
     }
 }

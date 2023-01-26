@@ -1,6 +1,6 @@
 use std::fs::File;
 
-use egui::{Ui, RichText, Color32, Widget, plot::Line, ComboBox};
+use egui::{Ui, RichText, Color32, Widget, plot::{Line, Bar, Polygon, PlotPoints}, ComboBox};
 use statrs::distribution::{Continuous, ContinuousCDF};
 
 use crate::{log, empty_resp, NumBox, Comp};
@@ -13,6 +13,40 @@ trait TryContinuous {
 
 trait Fillable {
     fn fill(&mut self) -> Result<(), &str>;
+}
+
+trait Graph : TryContinuous {
+    fn get_height(&self, pos: f64) -> Option<f64>;
+    fn start(&self) -> f64;
+    fn end(&self) -> f64;
+
+    /// Gets a printable line
+    fn get_line(&self) -> Vec<[f64;2]> {
+        let s = self.start();
+        let e = self.end();
+        (0..640).map(|x| s + (e-s)*(x as f64)/640.0)
+        .map(|x| (x, self.pdf(x)))
+        .filter(|(_, v)| v.is_some())
+        .map(|(x, v)| [x, v.unwrap()])
+        .collect()
+    }
+
+    fn is_selected(&self, pos: f64) -> bool;
+
+    /// Like get_line but filled in
+    fn get_fill(&self) -> Vec<[[f64;2];4]> {
+        let top : Vec<_> = self.get_line().into_iter().filter(|[x,_]| self.is_selected(*x)).collect();
+        if !top.is_empty() {
+            top.windows(2).map(|l| {
+                let s = l[0][0];
+                let e = l[1][0];
+                [l[0], l[1], [e, 0.0], [s, 0.0]]
+            }).collect()
+        }
+        else {
+            vec![]
+        }
+    }
 }
 
 fn find_zero(f: impl Fn(f64) -> Option<f64>) -> Option<f64> {
@@ -81,11 +115,12 @@ fn find_zero(f: impl Fn(f64) -> Option<f64>) -> Option<f64> {
 pub(crate) struct OpenCrunchCDistr{
     distr: CDistr,
     graph: Vec<[f64;2]>,
+    fill: Vec<[[f64;2];4]>,
 }
 
 impl Default for OpenCrunchCDistr {
     fn default() -> Self {
-        Self { distr: CDistr::None, graph: vec![] }
+        Self { distr: CDistr::None, graph: vec![], fill: vec![] }
     }
 }
 
@@ -123,26 +158,17 @@ impl Widget for &mut OpenCrunchCDistr {
         }).inner;
 
         if (self.graph.is_empty() || resp.changed()) && !self.distr.is_none() {
-            //println!("{:?}", self.distr);
-            if let Some(bottom) = self.distr.inverse_cdf(0.0001) {
-                if let Some(top) = self.distr.inverse_cdf(0.9999) {
-                    let points = (0..=300).into_iter()
-                        .map(|x| (bottom + (top-bottom)*((x as f64)/300.)))
-                        .map(|x| [x, self.distr.pdf(x).expect("distribution is not none")]).collect();
-                    self.graph = points;
-                }
-                else {
-                    self.graph = vec![];
-                }
-            }
-            else {
-                self.graph = vec![];
-            }
+            self.graph = self.distr.get_line();
+            self.fill = self.distr.get_fill();
         }
         let line = Line::new(self.graph.clone());
+        let polys: Vec<_> = self.fill.iter().map(|x| Polygon::new(x.iter().cloned().collect::<Vec<_>>()).color(Color32::RED)).collect();
         egui::panel::CentralPanel::default().show(ctx, |ui| {
             eframe::egui::widgets::plot::Plot::new("Main").show(ui, |ui| {
                 ui.line(line);
+                for p in polys {
+                    ui.polygon(p);
+                }
             });
         }).response
     }
@@ -156,7 +182,7 @@ enum CDistr {
     TDist(TDist)
 }
 
-impl CDistr {
+impl TryContinuous for CDistr {
     fn pdf(&self, x: f64) -> Option<f64> {
         match self {
             CDistr::None => None,
@@ -183,7 +209,47 @@ impl CDistr {
             CDistr::TDist(t) => t.inverse_cdf(x),
         }
     }
+}
 
+impl Graph for CDistr {
+    fn get_height(&self, pos: f64) -> Option<f64> {
+        match self {
+            CDistr::None => None,
+            CDistr::Normal(n) => n.pdf(pos),
+            CDistr::ChiSquare(c) => c.pdf(pos),
+            CDistr::TDist(t) => t.cdf(pos),
+        }
+    }
+
+    fn start(&self) -> f64 {
+        match self {
+            CDistr::None => 0.0,
+            CDistr::Normal(n) => n.start(),
+            CDistr::ChiSquare(c) => c.start(),
+            CDistr::TDist(t) => t.start(),
+        }
+    }
+
+    fn end(&self) -> f64 {
+        match self {
+            CDistr::None => 0.0,
+            CDistr::Normal(n) => n.end(),
+            CDistr::ChiSquare(c) => c.end(),
+            CDistr::TDist(t) => t.end(),
+        }
+    }
+
+    fn is_selected(&self, pos: f64) -> bool {
+        match self {
+            CDistr::None => false,
+            CDistr::Normal(n) => n.is_selected(pos),
+            CDistr::ChiSquare(c) => c.is_selected(pos),
+            CDistr::TDist(t) => t.is_selected(pos),
+        }
+    }
+}
+
+impl CDistr {
     fn is_none(&self) -> bool {
         matches!(self, CDistr::None)
     }
@@ -236,6 +302,33 @@ impl TryContinuous for Normal {
 
     fn inverse_cdf(&self, x: f64) -> Option<f64> {
         Some(statrs::distribution::Normal::new(self.mean?, self.sd?).ok()?.inverse_cdf(x))
+    }
+}
+
+impl Graph for Normal {
+    fn get_height(&self, pos: f64) -> Option<f64> {
+        self.pdf(pos)
+    }
+
+    fn start(&self) -> f64 {
+        match (self.mean, self.sd) {
+            (Some(m), Some(sd)) => m-3.0*sd,
+            _ => 0.0
+        }
+    }
+
+    fn end(&self) -> f64 {
+        match (self.mean, self.sd) {
+            (Some(m), Some(sd)) => m+3.0*sd,
+            _ => 0.0
+        }
+    }
+
+    fn is_selected(&self, pos: f64) -> bool {
+        match self.xval {
+            Some(x) => self.comp.comp(pos, x),
+            None => false,
+        }
     }
 }
 
@@ -492,6 +585,27 @@ impl Fillable for ChiSquare {
     }
 }
 
+impl Graph for ChiSquare {
+    fn get_height(&self, pos: f64) -> Option<f64> {
+        self.pdf(pos)
+    }
+
+    fn start(&self) -> f64 {
+        0.0
+    }
+
+    fn end(&self) -> f64 {
+        self.inverse_cdf(0.999).unwrap_or(0.0)
+    }
+
+    fn is_selected(&self, pos: f64) -> bool {
+        match self.xval {
+            Some(x) => x <= pos,
+            None => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct TDist {
     location: Option<f64>,
@@ -505,7 +619,7 @@ struct TDist {
 
 impl Default for TDist {
     fn default() -> Self {
-        Self { freedom: Some(4.0), xval: Some(1.0), pval: None, strings: [
+        Self { freedom: Some(4.0), xval: Some(0.0), pval: None, strings: [
             "0.0".to_owned(),
             "1.0".to_owned(),
             "4.0".to_owned(),
@@ -628,7 +742,7 @@ impl Fillable for TDist {
                     self.strings[0] = fill.to_string();
                 }
                 else if self.scale.is_none() {
-                    let inv = statrs::distribution::StudentsT::new(0., 1., self.freedom.expect("Scale was only None")).map_err(|x| "Freedom cannot be negative")?.inverse_cdf(self.pval.expect("Scale was only none"));
+                    let inv = statrs::distribution::StudentsT::new(0., 1., self.freedom.expect("Scale was only None")).map_err(|_| "Freedom cannot be negative")?.inverse_cdf(self.pval.expect("Scale was only none"));
                     if inv == 0.0 {
                         return Err("Not enough information, prob must not be 0.5");
                     }
@@ -656,6 +770,27 @@ impl Fillable for TDist {
             _ => {
                 unreachable!();
             }
+        }
+    }
+}
+
+impl Graph for TDist {
+    fn get_height(&self, pos: f64) -> Option<f64> {
+        self.pdf(pos)
+    }
+
+    fn start(&self) -> f64 {
+        self.inverse_cdf(0.001).unwrap_or(0.0)
+    }
+
+    fn end(&self) -> f64 {
+        self.inverse_cdf(0.999).unwrap_or(0.0)
+    }
+
+    fn is_selected(&self, pos: f64) -> bool {
+        match self.xval {
+            Some(x) => x <= pos,
+            None => false,
         }
     }
 }
