@@ -1,17 +1,15 @@
-mod distrs;
 mod calcs;
+mod distrs;
 
 use std::str::FromStr;
 
 use calcs::OpenCrunchSample;
 use distrs::OpenCrunchCDistr;
 use eframe::App;
-use egui::{Ui, Rect, Id, Sense};
-
+use egui::{Id, Rect, Sense, Ui};
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
-
     let native_options = eframe::NativeOptions::default();
     eframe::run_native(
         "OpenCrunch",
@@ -47,7 +45,12 @@ pub async fn start(canvas_id: &str) -> Result<(), eframe::wasm_bindgen::JsValue>
     //log(&format!("Got id {}", canvas_id));
     //let x: Option<u32> = None;
     //x.unwrap();
-    eframe::start_web(canvas_id, web_options, Box::new(|_| Box::new(OpenCrunchCDistr::default()))).await?;
+    eframe::start_web(
+        canvas_id,
+        web_options,
+        Box::new(|_| Box::new(OpenCrunchCDistr::default())),
+    )
+    .await?;
     Ok(())
 }
 
@@ -67,7 +70,7 @@ struct OpenCrunch {
 }
 
 impl App for OpenCrunch {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
         egui::panel::TopBottomPanel::top("Tabs").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if ui.button("Distributions").clicked() {
@@ -84,13 +87,13 @@ impl App for OpenCrunch {
                 egui::panel::CentralPanel::default().show(ctx, |ui| {
                     ui.add(&mut self.cdistr);
                 });
-            },
+            }
             Active::Calcs => {
                 egui::panel::CentralPanel::default().show(ctx, |ui| {
                     ui.add(&mut self.sample);
                 });
-            },
-            Active::None => {},
+            }
+            Active::None => {}
         }
     }
 }
@@ -99,8 +102,10 @@ pub(crate) fn empty_resp(ui: &Ui) -> egui::Response {
     ui.interact(Rect::everything_above(0.0), Id::new("none"), Sense::click())
 }
 
-fn coerce_numeric(s: &String) -> String {
-    s.chars().filter(|c| c.is_ascii_digit() || *c=='.' || *c == '-').collect()
+fn coerce_numeric(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_ascii_digit() || *c == '.' || *c == '-')
+        .collect()
 }
 
 trait NumBox {
@@ -124,7 +129,8 @@ impl NumBox for Ui {
             let resp = ui.text_edit_singleline(v);
             *(v) = coerce_numeric(v);
             resp
-        }).inner
+        })
+        .inner
     }
 }
 
@@ -168,7 +174,7 @@ impl ToString for Comp {
 }
 
 impl Comp {
-    fn comp<T : PartialOrd + PartialEq>(&self, left: T, right: T) -> bool {
+    fn comp<T: PartialOrd + PartialEq>(&self, left: T, right: T) -> bool {
         match self {
             Comp::GE => left >= right,
             Comp::LE => left <= right,

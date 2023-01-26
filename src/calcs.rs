@@ -1,7 +1,10 @@
-use egui::{Widget, Ui};
-use statrs::{distribution::{Normal, ContinuousCDF}, function};
+use egui::{Ui, Widget};
+use statrs::{
+    distribution::{ContinuousCDF, Normal},
+    function,
+};
 
-use crate::{empty_resp, NumBox, Comp};
+use crate::{empty_resp, Comp, NumBox};
 
 #[derive(Default, Clone)]
 enum Calcs {
@@ -12,8 +15,8 @@ enum Calcs {
 }
 
 #[derive(Default)]
-pub(crate) struct OpenCrunchSample{
-    sample: Calcs
+pub(crate) struct OpenCrunchSample {
+    sample: Calcs,
 }
 
 impl Widget for &mut OpenCrunchSample {
@@ -28,8 +31,8 @@ impl Widget for &mut OpenCrunchSample {
         });
 
         match &mut self.sample {
-            Calcs::None => {empty_resp(ui)},
-            Calcs::SampInf(sam) => {ui.add(sam)},
+            Calcs::None => empty_resp(ui),
+            Calcs::SampInf(sam) => ui.add(sam),
             Calcs::Comb(c) => ui.add(c),
         }
     }
@@ -44,21 +47,27 @@ pub(crate) struct SampleProbInf {
     prob: Result<f64, String>,
     comp: Comp,
     /// sample_size, mean, sd, target_mean, comp
-    strings: [String; 6]
+    strings: [String; 6],
 }
 
 impl Default for SampleProbInf {
     fn default() -> Self {
-        Self { sample_size: 1, mean: 0.0, sd: 1.0, target_mean: 0.0, strings: [
-            1.to_string(),
-            0.0.to_string(),
-            1.0.to_string(),
-            0.0.to_string(),
-            "<=".to_string(),
-            "".to_string(),
-        ],
+        Self {
+            sample_size: 1,
+            mean: 0.0,
+            sd: 1.0,
+            target_mean: 0.0,
+            strings: [
+                1.to_string(),
+                0.0.to_string(),
+                1.0.to_string(),
+                0.0.to_string(),
+                "<=".to_string(),
+                "".to_string(),
+            ],
             prob: Err("".to_string()),
-            comp: Comp::LE, }
+            comp: Comp::LE,
+        }
     }
 }
 
@@ -70,19 +79,19 @@ impl Widget for &mut SampleProbInf {
         resp = resp.union(ui.text_edit_singleline(&mut self.strings[4]));
         resp = resp.union(ui.num_box("Sample Mean", &mut self.strings[3]));
         if resp.changed() {
-            if let Some(sample_size) = self.strings[0].parse().ok() {
+            if let Ok(sample_size) = self.strings[0].parse() {
                 self.sample_size = sample_size;
             }
-            if let Some(mean) = self.strings[1].parse().ok() {
+            if let Ok(mean) = self.strings[1].parse() {
                 self.mean = mean;
             }
-            if let Some(sd) = self.strings[2].parse().ok() {
+            if let Ok(sd) = self.strings[2].parse() {
                 self.sd = sd;
             }
-            if let Some(target) = self.strings[3].parse().ok() {
+            if let Ok(target) = self.strings[3].parse() {
                 self.target_mean = target;
             }
-            if let Some(comp) = self.strings[4].parse().ok() {
+            if let Ok(comp) = self.strings[4].parse() {
                 self.comp = comp;
             }
         }
@@ -92,29 +101,27 @@ impl Widget for &mut SampleProbInf {
         });
         if resp.changed() {
             //self.strings[4] = self.comp.to_string();
-            match Normal::new(self.mean, self.sd/((self.sample_size as f64).sqrt())) {
+            match Normal::new(self.mean, self.sd / ((self.sample_size as f64).sqrt())) {
                 Ok(n) => {
                     let fill = n.cdf(self.target_mean);
                     let fill = match self.comp {
-                        Comp::GE | Comp::GT => {
-                            1.0-fill
-                        },
-                        Comp::LE | Comp::LT => {
-                            fill
-                        },
+                        Comp::GE | Comp::GT => 1.0 - fill,
+                        Comp::LE | Comp::LT => fill,
                         Comp::EQ | Comp::NE => {
-                            self.prob = Err("Cannot use exact in a continuous distribution.".to_string());
-                            self.strings[5] = "Cannot use exact in a continuous distribution.".to_string();
+                            self.prob =
+                                Err("Cannot use exact in a continuous distribution.".to_string());
+                            self.strings[5] =
+                                "Cannot use exact in a continuous distribution.".to_string();
                             return resp;
-                        },
+                        }
                     };
                     self.prob = Ok(fill);
                     self.strings[5] = fill.to_string();
-                },
+                }
                 Err(e) => {
                     self.prob = Err(e.to_string());
                     self.strings[5] = e.to_string();
-                },
+                }
             }
         }
         resp
@@ -128,12 +135,14 @@ struct Comb {
 
 impl Default for Comb {
     fn default() -> Self {
-        Self { strings: [
-            "1".to_string(),
-            "1".to_string(),
-            "1".to_string(),
-            "1".to_string(),
-        ] }
+        Self {
+            strings: [
+                "1".to_string(),
+                "1".to_string(),
+                "1".to_string(),
+                "1".to_string(),
+            ],
+        }
     }
 }
 
@@ -144,8 +153,9 @@ impl Widget for &mut Comb {
         if resp.changed() {
             if let Ok(n) = self.strings[0].parse::<f64>() {
                 if let Ok(r) = self.strings[1].parse::<f64>() {
-                    let perm = function::gamma::gamma(n+1.0)/function::gamma::gamma(n-r+1.0);
-                    let comb = perm/function::gamma::gamma(r+1.0);
+                    let perm =
+                        function::gamma::gamma(n + 1.0) / function::gamma::gamma(n - r + 1.0);
+                    let comb = perm / function::gamma::gamma(r + 1.0);
                     self.strings[2] = (perm.round() as usize).to_string();
                     self.strings[3] = (comb.round() as usize).to_string();
                 }
