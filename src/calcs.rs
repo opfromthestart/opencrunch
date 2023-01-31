@@ -11,6 +11,7 @@ enum Calcs {
     #[default]
     None,
     SampInf(SampleProbInf),
+    SampFin(SampleProbFin),
     Comb(Comb),
 }
 
@@ -25,6 +26,9 @@ impl Widget for &mut OpenCrunchSample {
             if ui.button("Probability of Sample").clicked() {
                 self.sample = Calcs::SampInf(SampleProbInf::default());
             }
+            if ui.button("Probability of Sample from Finite").clicked() {
+                self.sample = Calcs::SampFin(SampleProbFin::default());
+            }
             if ui.button("Comb/Perm").clicked() {
                 self.sample = Calcs::Comb(Comb::default());
             }
@@ -34,6 +38,7 @@ impl Widget for &mut OpenCrunchSample {
             Calcs::None => empty_resp(ui),
             Calcs::SampInf(sam) => ui.add(sam),
             Calcs::Comb(c) => ui.add(c),
+            Calcs::SampFin(sam) => ui.add(sam),
         }
     }
 }
@@ -163,6 +168,119 @@ impl Widget for &mut Comb {
         }
         ui.num_box("Permutations", &mut (self.strings[2].clone()));
         ui.num_box("Combinations", &mut (self.strings[3].clone()));
+        resp
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct SampleProbFin {
+    pop_size: usize,
+    sample_size: usize,
+    correct: f64,
+    mean: f64,
+    sd: f64,
+    sample_sd: f64,
+    target_mean: f64,
+    prob: Result<f64, String>,
+    comp: Comp,
+    /// pop_size, sample_size, mean, sd, target_mean, comp
+    strings: [String; 7],
+}
+
+impl Default for SampleProbFin {
+    fn default() -> Self {
+        Self {
+            pop_size: 20,
+            sample_size: 1,
+            correct: 1.0,
+            mean: 0.0,
+            sd: 1.0,
+            target_mean: 0.0,
+            strings: [
+                10.to_string(),
+                1.to_string(),
+                0.0.to_string(),
+                1.0.to_string(),
+                0.0.to_string(),
+                "<=".to_string(),
+                "".to_string(),
+            ],
+            prob: Err("".to_string()),
+            comp: Comp::LE,
+            sample_sd: 1.0,
+        }
+    }
+}
+
+impl Widget for &mut SampleProbFin {
+    fn ui(self, ui: &mut Ui) -> egui::Response {
+        let mut resp = ui.num_box("Population Size", &mut self.strings[0]);
+        resp = resp.union(ui.num_box("Sample Size", &mut self.strings[1]));
+        if resp.changed() {
+            if let Ok(pop_size) = self.strings[0].parse() {
+                self.pop_size = pop_size;
+            }
+            if let Ok(sample_size) = self.strings[1].parse() {
+                self.sample_size = sample_size;
+            }
+            self.correct = ((self.pop_size - self.sample_size) as f64)/(self.pop_size as f64 - 1.0);
+        }
+        ui.horizontal(|ui| {
+            ui.label("Correction");
+            ui.text_edit_singleline(&mut self.correct.to_string());
+        });
+        resp = resp.union(ui.num_box("Population Mean", &mut self.strings[2]));
+        resp = resp.union(ui.num_box("Population SD", &mut self.strings[3]));
+        resp = resp.union(ui.text_edit_singleline(&mut self.strings[5]));
+        resp = resp.union(ui.num_box("Sample Mean", &mut self.strings[4]));
+        if resp.changed() {
+            if let Ok(mean) = self.strings[2].parse() {
+                self.mean = mean;
+            }
+            if let Ok(sd) = self.strings[3].parse() {
+                self.sd = sd;
+            }
+            if let Ok(target) = self.strings[4].parse() {
+                self.target_mean = target;
+            }
+            if let Ok(comp) = self.strings[5].parse() {
+                self.comp = comp;
+            }
+            self.sample_sd = (self.sd * self.sd * self.correct / (self.sample_size as f64)).sqrt();
+        }
+        ui.horizontal(|ui| {
+            ui.label("Sample SD");
+            ui.text_edit_singleline(&mut self.sample_sd.to_string());
+        });
+        ui.horizontal(|ui| {
+            ui.label("Prob");
+            ui.text_edit_singleline(&mut (self.strings[6].clone()))
+        });
+        if resp.changed() {
+            //self.strings[4] = self.comp.to_string();
+            match Normal::new(self.mean, self.sd / ((self.sample_size as f64).sqrt())) {
+                Ok(n) => {
+                    let fill = n.cdf(self.target_mean);
+                    let fill = match self.comp {
+                        Comp::GE | Comp::GT => 1.0 - fill,
+                        Comp::LE | Comp::LT => fill,
+                        Comp::EQ | Comp::NE => {
+                            self.prob =
+                                Err("Cannot use exact in a continuous distribution.".to_string());
+                            self.strings[6] =
+                                "Cannot use exact in a continuous distribution.".to_string();
+                            return resp;
+                        }
+                    };
+                    self.prob = Ok(fill);
+                    self.strings[6] = fill.to_string();
+                }
+                Err(e) => {
+                    self.prob = Err(e.to_string());
+                    self.strings[6] = e.to_string();
+                }
+            }
+        }
         resp
     }
 }
