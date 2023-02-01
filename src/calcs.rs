@@ -4,7 +4,7 @@ use statrs::{
     function,
 };
 
-use crate::{empty_resp, Comp, NumBox};
+use crate::{empty_resp, Constr, NumBox};
 
 #[derive(Default, Clone)]
 enum Calcs {
@@ -50,7 +50,7 @@ pub(crate) struct SampleProbInf {
     sd: f64,
     target_mean: f64,
     prob: Result<f64, String>,
-    comp: Comp,
+    comp: Constr<f64>,
     /// sample_size, mean, sd, target_mean, comp
     strings: [String; 6],
 }
@@ -71,7 +71,7 @@ impl Default for SampleProbInf {
                 "".to_string(),
             ],
             prob: Err("".to_string()),
-            comp: Comp::LE,
+            comp: Constr::LE,
         }
     }
 }
@@ -108,17 +108,18 @@ impl Widget for &mut SampleProbInf {
             //self.strings[4] = self.comp.to_string();
             match Normal::new(self.mean, self.sd / ((self.sample_size as f64).sqrt())) {
                 Ok(n) => {
-                    let fill = n.cdf(self.target_mean);
                     let fill = match self.comp {
-                        Comp::GE | Comp::GT => 1.0 - fill,
-                        Comp::LE | Comp::LT => fill,
-                        Comp::EQ | Comp::NE => {
+                        Constr::GE(v) | Constr::GT(v) => 1.0 - fill,
+                        Constr::LE(_) | Constr::LT(_) => fill,
+                        Constr::EQ(_) | Constr::NE(_) => {
                             self.prob =
                                 Err("Cannot use exact in a continuous distribution.".to_string());
                             self.strings[5] =
                                 "Cannot use exact in a continuous distribution.".to_string();
                             return resp;
                         }
+                        Constr::IN(a, b) => ,
+                        Constr::OUT(_, _) => todo!(),
                     };
                     self.prob = Ok(fill);
                     self.strings[5] = fill.to_string();
@@ -182,7 +183,7 @@ pub(crate) struct SampleProbFin {
     sample_sd: f64,
     target_mean: f64,
     prob: Result<f64, String>,
-    comp: Comp,
+    comp: Constr<f64>,
     /// pop_size, sample_size, mean, sd, target_mean, comp
     strings: [String; 7],
 }
@@ -206,7 +207,7 @@ impl Default for SampleProbFin {
                 "".to_string(),
             ],
             prob: Err("".to_string()),
-            comp: Comp::LE,
+            comp: Constr::LE,
             sample_sd: 1.0,
         }
     }
@@ -262,9 +263,9 @@ impl Widget for &mut SampleProbFin {
                 Ok(n) => {
                     let fill = n.cdf(self.target_mean);
                     let fill = match self.comp {
-                        Comp::GE | Comp::GT => 1.0 - fill,
-                        Comp::LE | Comp::LT => fill,
-                        Comp::EQ | Comp::NE => {
+                        Constr::GE | Constr::GT => 1.0 - fill,
+                        Constr::LE | Constr::LT => fill,
+                        Constr::EQ | Constr::NE => {
                             self.prob =
                                 Err("Cannot use exact in a continuous distribution.".to_string());
                             self.strings[6] =

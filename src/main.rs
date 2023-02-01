@@ -1,7 +1,7 @@
 mod calcs;
 mod distrs;
 
-use std::str::FromStr;
+use std::{str::FromStr, fmt::Display};
 
 use calcs::OpenCrunchSample;
 use distrs::OpenCrunchCDistr;
@@ -135,53 +135,120 @@ impl NumBox for Ui {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) enum Comp {
-    GE,
-    LE,
-    GT,
-    LT,
-    EQ,
-    NE,
+pub(crate) enum Constr<T: Display + PartialOrd + PartialEq> {
+    GE(T),
+    LE(T),
+    GT(T),
+    LT(T),
+    EQ(T),
+    NE(T),
+    IN(T,T),
+    OUT(T,T),
+    None,
 }
 
-impl FromStr for Comp {
+impl<T: Display + PartialOrd + PartialEq + std::str::FromStr> FromStr for Constr<T> {
     type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            ">=" => Ok(Self::GE),
-            "<=" => Ok(Self::LE),
-            ">" => Ok(Self::GT),
-            "<" => Ok(Self::LT),
-            "=" | "==" => Ok(Self::EQ),
-            "!=" => Ok(Self::NE),
-            _ => Err("Not a valid comparison"),
+        const inv: &'static str = "Not a valid input";
+        if &s[..2] == ">=" {
+            match s[2..].parse() {
+                Ok(n) => Ok(Self::GE(n)),
+                Err(e) => Err(inv),
+            }
+        }
+        else if &s[..2] == "<=" {
+            match s[2..].parse() {
+                Ok(n) => Ok(Self::LE(n)),
+                Err(e) => Err(inv),
+            }
+        }
+        else if &s[..2] == "==" {
+            match s[2..].parse() {
+                Ok(n) => Ok(Self::EQ(n)),
+                Err(e) => Err(inv),
+            }
+        }
+        else if &s[..2] == "!=" {
+            match s[2..].parse() {
+                Ok(n) => Ok(Self::NE(n)),
+                Err(e) => Err(inv),
+            }
+        }
+        else if &s[..1] == ">" {
+            match s[1..].parse() {
+                Ok(n) => Ok(Self::GT(n)),
+                Err(e) => Err(inv),
+            }
+        }
+        else if &s[..1] == "<" {
+            match s[1..].parse() {
+                Ok(n) => Ok(Self::LT(n)),
+                Err(e) => Err(inv),
+            }
+        }
+        else if &s[..1] == "=" {
+            match s[1..].parse() {
+                Ok(n) => Ok(Self::EQ(n)),
+                Err(e) => Err(inv),
+            }
+        }
+        else if &s[..1] == "[" {
+            let Some(split) = s[1..].find(',') else {
+                return Err("Comma expected in range");
+            };
+            let Some(end) = s[split..].find(']') else {
+                return Err("End ] expected");
+            };
+            match s[1..split].parse() {
+                Ok(a) => {
+                    match s[split+1..end].parse() {
+                        Ok(b) => Ok(Self::IN(a, b)),
+                        Err(_) => Err(inv),
+                    }
+                },
+                Err(_) => Err(inv),
+            }
+        }
+        else {
+            Err("Not a valid constraint")
         }
     }
 }
 
-impl ToString for Comp {
+impl<T: Display + PartialOrd + PartialEq> ToString for Constr<T> {
     fn to_string(&self) -> String {
         match self {
-            Comp::GE => ">=".to_owned(),
-            Comp::LE => "<=".to_owned(),
-            Comp::GT => ">".to_owned(),
-            Comp::LT => "<".to_owned(),
-            Comp::EQ => "=".to_owned(),
-            Comp::NE => "!=".to_owned(),
+            Constr::GE(v) => format!(">={v}"),
+            Constr::LE(v) => format!("<={v}"),
+            Constr::GT(v) => format!(">{v}"),
+            Constr::LT(v) => format!("<{v}"),
+            Constr::EQ(v) => format!("=={v}"),
+            Constr::NE(v) => format!("!={v}"),
+            Constr::IN(a, b) => format!("[{a},{b}]"),
+            Constr::OUT(a, b) => format!("]{a},{b}["),
+            Constr::None => format!(""),
         }
     }
 }
 
-impl Comp {
-    fn comp<T: PartialOrd + PartialEq>(&self, left: T, right: T) -> bool {
+impl<T: Display + PartialOrd + PartialEq> Constr<T> {
+    fn comp(&self, arg: &T) -> bool {
         match self {
-            Comp::GE => left >= right,
-            Comp::LE => left <= right,
-            Comp::GT => left > right,
-            Comp::LT => left < right,
-            Comp::EQ => left == right,
-            Comp::NE => left != right,
+            Constr::GE(v) => arg>=v,
+            Constr::LE(v) => arg<=v,
+            Constr::GT(v) => arg>v,
+            Constr::LT(v) => arg<v,
+            Constr::EQ(v) => arg==v,
+            Constr::NE(v) => arg!=v,
+            Constr::IN(a, b) => arg>=a && arg<=b,
+            Constr::OUT(a, b) => arg<a || arg>b,
+            Constr::None => true,
         }
     }
+}
+
+trait UseComp<T: Display + PartialOrd + PartialEq> {
+    fn apply(&self, comp: Constr<T>) -> Result<T, String>;
 }

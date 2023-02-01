@@ -6,7 +6,7 @@ use egui::{
 };
 use statrs::distribution::{Continuous, ContinuousCDF};
 
-use crate::{empty_resp, Comp, NumBox};
+use crate::{empty_resp, Constr, NumBox, UseComp};
 
 trait TryContinuous {
     fn pdf(&self, x: f64) -> Option<f64>;
@@ -55,6 +55,12 @@ trait Graph: TryContinuous {
         } else {
             vec![]
         }
+    }
+}
+
+impl UseComp<f64> for Normal {
+    fn apply(&self, comp: Constr<f64>) -> Result<f64, String> {
+        todo!()
     }
 }
 
@@ -288,7 +294,7 @@ struct Normal {
     sd: Option<f64>,
     xval: Option<f64>,
     pval: Option<f64>,
-    comp: Comp,
+    comp: Constr<f64>,
     /// \[mean, sd, xval, pval, comp, error\]
     strings: [String; 6],
 }
@@ -308,7 +314,7 @@ impl Default for Normal {
                 "<=".to_string(),
                 "".to_string(),
             ],
-            comp: Comp::LE,
+            comp: Constr::LE,
         }
     }
 }
@@ -419,8 +425,8 @@ impl Fillable for Normal {
             3 => {
                 if self.xval.is_none() {
                     let p = match self.comp {
-                        Comp::GE | Comp::GT => 1.0 - self.pval.expect("Xval was only None"),
-                        Comp::LE | Comp::LT => self.pval.expect("Xval was only None"),
+                        Constr::GE | Constr::GT => 1.0 - self.pval.expect("Xval was only None"),
+                        Constr::LE | Constr::LT => self.pval.expect("Xval was only None"),
                         _ => {
                             return Err("Cannot use exact in a continuous distribution.");
                         }
@@ -433,8 +439,8 @@ impl Fillable for Normal {
                         .cdf(self.xval.expect("Pval was only None"))
                         .expect("Pval was only None, and distr is ok");
                     let fill = match self.comp {
-                        Comp::GE | Comp::GT => 1.0 - fill,
-                        Comp::LE | Comp::LT => fill,
+                        Constr::GE | Constr::GT => 1.0 - fill,
+                        Constr::LE | Constr::LT => fill,
                         _ => {
                             return Err("Cannot use exact in a continuous distribution.");
                         }
@@ -443,8 +449,8 @@ impl Fillable for Normal {
                     self.strings[3] = fill.to_string();
                 } else if self.mean.is_none() {
                     let p = match self.comp {
-                        Comp::GE | Comp::GT => 1.0 - self.pval.expect("Mean was only None"),
-                        Comp::LE | Comp::LT => self.pval.expect("Mean was only None"),
+                        Constr::GE | Constr::GT => 1.0 - self.pval.expect("Mean was only None"),
+                        Constr::LE | Constr::LT => self.pval.expect("Mean was only None"),
                         _ => {
                             return Err("Cannot use exact in a continuous distribution.");
                         }
@@ -458,8 +464,8 @@ impl Fillable for Normal {
                     self.strings[0] = fill.to_string();
                 } else if self.sd.is_none() {
                     let p = match self.comp {
-                        Comp::GE | Comp::GT => 1.0 - self.pval.expect("SD was only None"),
-                        Comp::LE | Comp::LT => self.pval.expect("SD was only None"),
+                        Constr::GE | Constr::GT => 1.0 - self.pval.expect("SD was only None"),
+                        Constr::LE | Constr::LT => self.pval.expect("SD was only None"),
                         _ => {
                             return Err("Cannot use exact in a continuous distribution.");
                         }
