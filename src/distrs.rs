@@ -153,6 +153,10 @@ impl Widget for &mut OpenCrunchCDistr {
                     self.distr = CDistr::TDist(TDist::default());
                     self.graph = vec![];
                 }
+                if ui.button("Exponential").clicked() {
+                    self.distr = CDistr::Exp(Expon::default());
+                    self.graph = vec![];
+                }
             });
         });
 
@@ -196,6 +200,7 @@ enum CDistr {
     Normal(Normal),
     ChiSquare(ChiSquare),
     TDist(TDist),
+    Exp(Expon),
 }
 
 impl TryContinuous for CDistr {
@@ -205,6 +210,7 @@ impl TryContinuous for CDistr {
             CDistr::Normal(n) => n.pdf(x),
             CDistr::ChiSquare(c) => c.pdf(x),
             CDistr::TDist(t) => t.pdf(x),
+            CDistr::Exp(e) => e.pdf(x),
         }
     }
 
@@ -214,6 +220,7 @@ impl TryContinuous for CDistr {
             CDistr::Normal(n) => n.cdf(x),
             CDistr::ChiSquare(c) => c.cdf(x),
             CDistr::TDist(t) => t.cdf(x),
+            CDistr::Exp(e) => e.cdf(x),
         }
     }
 
@@ -223,6 +230,7 @@ impl TryContinuous for CDistr {
             CDistr::Normal(n) => n.inverse_cdf(x),
             CDistr::ChiSquare(c) => c.inverse_cdf(x),
             CDistr::TDist(t) => t.inverse_cdf(x),
+            CDistr::Exp(e) => e.inverse_cdf(x),
         }
     }
 }
@@ -233,7 +241,8 @@ impl Graph for CDistr {
             CDistr::None => None,
             CDistr::Normal(n) => n.pdf(pos),
             CDistr::ChiSquare(c) => c.pdf(pos),
-            CDistr::TDist(t) => t.cdf(pos),
+            CDistr::TDist(t) => t.pdf(pos),
+            CDistr::Exp(e) => e.pdf(pos),
         }
     }
 
@@ -243,6 +252,7 @@ impl Graph for CDistr {
             CDistr::Normal(n) => n.start(),
             CDistr::ChiSquare(c) => c.start(),
             CDistr::TDist(t) => t.start(),
+            CDistr::Exp(e) => e.start(),
         }
     }
 
@@ -252,6 +262,7 @@ impl Graph for CDistr {
             CDistr::Normal(n) => n.end(),
             CDistr::ChiSquare(c) => c.end(),
             CDistr::TDist(t) => t.end(),
+            CDistr::Exp(e) => e.end(),
         }
     }
 
@@ -261,6 +272,7 @@ impl Graph for CDistr {
             CDistr::Normal(n) => n.is_selected(pos),
             CDistr::ChiSquare(c) => c.is_selected(pos),
             CDistr::TDist(t) => t.is_selected(pos),
+            CDistr::Exp(e) => e.is_selected(pos),
         }
     }
 }
@@ -278,6 +290,7 @@ impl Widget for &mut CDistr {
             CDistr::Normal(n) => n.ui(ui),
             CDistr::ChiSquare(c) => c.ui(ui),
             CDistr::TDist(t) => t.ui(ui),
+            CDistr::Exp(e) => e.ui(ui),
         }
     }
 }
@@ -884,6 +897,127 @@ impl Graph for TDist {
         match self.xval {
             Some(x) => x <= pos,
             None => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Expon {
+    mean: Option<f64>,
+    xval: Option<f64>,
+    pval: Option<f64>,
+    strings: [String; 4],
+}
+
+impl Default for Expon {
+    fn default() -> Self {
+        Self { mean: Some(1.0), xval: Some(1.0), pval: None, strings: [
+            "1.0".to_string(),
+            "1.0".to_string(),
+            "".to_string(),
+            "".to_string(),
+        ] }
+    }
+}
+
+impl TryContinuous for Expon {
+    fn pdf(&self, x: f64) -> Option<f64> {
+        Some(statrs::distribution::Exp::new(self.mean?).ok()?.pdf(x))
+    }
+
+    fn cdf(&self, x: f64) -> Option<f64> {
+        Some(statrs::distribution::Exp::new(self.mean?).ok()?.cdf(x))
+    }
+
+    fn inverse_cdf(&self, x: f64) -> Option<f64> {
+        Some(statrs::distribution::Exp::new(self.mean?).ok()?.inverse_cdf(x))
+    }
+}
+
+impl Graph for Expon {
+    fn get_height(&self, pos: f64) -> Option<f64> {
+        self.pdf(pos)
+    }
+
+    fn start(&self) -> f64 {
+        0.0
+    }
+
+    fn end(&self) -> f64 {
+        self.inverse_cdf(0.99).unwrap_or(0.0)
+    }
+
+    fn is_selected(&self, pos: f64) -> bool {
+        self.xval.unwrap_or(0.0) >= pos
+    }
+}
+
+impl Widget for &mut Expon {
+    fn ui(self, ui: &mut Ui) -> egui::Response {
+        let mut resp = ui.num_box("mean", &mut self.strings[0]);
+        let x = ui.num_box("x value", &mut self.strings[1]);
+        if x.changed() && !self.strings[1].is_empty() {
+            self.strings[2] = "".to_owned();
+        }
+        resp = resp.union(x);
+        let p = ui.num_box("prob", &mut self.strings[2]);
+        if p.changed() && !self.strings[2].is_empty() {
+            self.strings[1] = "".to_owned();
+        }
+        resp = resp.union(p);
+        if resp.changed() {
+            self.mean = self.strings[0].parse().ok();
+            self.xval = self.strings[1].parse().ok();
+            self.pval = self.strings[2].parse().ok();
+        }
+        if ui.button("Calculate").clicked() {
+            resp.mark_changed();
+            if let Err(s) = self.fill() {
+                self.strings[3] = s.to_owned();
+            } else {
+                self.strings[3] = "".to_owned();
+            }
+        }
+        resp = resp
+            .union(ui.label(RichText::new(&self.strings[3]).background_color(Color32::DARK_RED)));
+        resp
+    }
+}
+
+impl Fillable for Expon {
+    fn fill(&mut self) -> Result<(), &str> {
+        let filled = [
+            self.mean,
+            self.xval,
+            self.pval,
+        ]
+        .iter()
+        .filter(|x| x.is_some())
+        .count();
+        match filled {
+            0..=1 => {
+                Err("Not enough values")
+            }
+            2 => {
+                if self.mean.is_none() {
+                    todo!()
+                }
+                else if self.xval.is_none() {
+                    self.xval = self.inverse_cdf(self.pval.expect("Xval was only None"));
+                    self.strings[1] = self.xval.unwrap().to_string();
+                    Ok(())
+                }
+                else if self.pval.is_none() {
+                    self.pval = self.cdf(self.xval.expect("Pval was only None"));
+                    self.strings[2] = self.pval.unwrap().to_string();
+                    Ok(())
+                }
+                else {
+                    unreachable!()
+                }
+            }
+            3 => Ok(()),
+            _ => unreachable!()
         }
     }
 }
