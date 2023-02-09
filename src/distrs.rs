@@ -677,7 +677,7 @@ impl Graph for ChiSquare {
 
     fn is_selected(&self, pos: f64) -> bool {
         match self.xval {
-            Some(x) => x <= pos,
+            Some(x) => x >= pos,
             None => false,
         }
     }
