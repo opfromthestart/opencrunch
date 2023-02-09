@@ -258,7 +258,7 @@ impl Widget for &mut SampleProbFin {
         });
         if resp.changed() {
             //self.strings[4] = self.comp.to_string();
-            match Normal::new(self.mean, self.sd / ((self.sample_size as f64).sqrt())) {
+            match Normal::new(self.mean, self.sample_sd ) {
                 Ok(n) => {
                     let fill = n.cdf(self.target_mean);
                     let fill = match self.comp {

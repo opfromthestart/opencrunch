@@ -928,12 +928,12 @@ impl Default for FDist {
     fn default() -> Self {
         Self {
             freedom1: Some(4.0),
-            xval: Some(2.0),
+            xval: Some(1.0),
             pval: None,
             strings: [
                 "4.0".to_owned(),
                 "4.0".to_owned(),
-                "2.0".to_owned(),
+                "1.0".to_owned(),
                 "".to_string(),
                 "".to_string(),
             ],
