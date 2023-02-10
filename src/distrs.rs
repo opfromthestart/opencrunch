@@ -4,9 +4,10 @@ use egui::{
     plot::{Line, Polygon},
     Color32, RichText, Ui, Widget,
 };
+use opencrunch_derive::crunch_fill;
 use statrs::distribution::{Continuous, ContinuousCDF};
 
-use crate::{empty_resp, Comp, NumBox};
+use crate::{empty_resp, Constr, NumBox};
 
 trait TryContinuous {
     fn pdf(&self, x: f64) -> Option<f64>;
@@ -23,12 +24,20 @@ trait Graph: TryContinuous {
     fn start(&self) -> f64;
     fn end(&self) -> f64;
 
+    fn get_gap(&self) -> f64 {
+        (self.end() - self.start()) / (self.get_terms() as f64)
+    }
+
+    fn get_terms(&self) -> usize {
+        480
+    }
+
     /// Gets a printable line
     fn get_line(&self) -> Vec<[f64; 2]> {
         let s = self.start();
-        let e = self.end();
-        (0..640)
-            .map(|x| s + (e - s) * (x as f64) / 640.0)
+        let gap = self.get_gap();
+        (0..self.get_terms())
+            .map(|x| s + (x as f64) * gap)
             .map(|x| (x, self.pdf(x)))
             .filter(|(_, v)| v.is_some())
             .map(|(x, v)| [x, v.unwrap()])
@@ -44,12 +53,18 @@ trait Graph: TryContinuous {
             .into_iter()
             .filter(|[x, _]| self.is_selected(*x))
             .collect();
+        let gap = self.get_gap();
         if !top.is_empty() {
             top.windows(2)
-                .map(|l| {
+                .filter_map(|l| {
                     let s = l[0][0];
                     let e = l[1][0];
-                    [l[0], l[1], [e, 0.0], [s, 0.0]]
+                    if e-s>gap*1.0001 {
+                        return None;
+                    }
+                    else {
+                        Some([[s, 0.0], l[0], l[1], [e, 0.0],])
+                    }
                 })
                 .collect()
         } else {
@@ -183,7 +198,7 @@ impl Widget for &mut OpenCrunchCDistr {
         let polys: Vec<_> = self
             .fill
             .iter()
-            .map(|x| Polygon::new(x.to_vec()).color(Color32::RED))
+            .map(|x| Polygon::new(x.to_vec()).color(Color32::RED).fill_alpha(1.0))
             .collect();
         egui::panel::CentralPanel::default()
             .show(ctx, |ui| {
@@ -308,33 +323,29 @@ impl Widget for &mut CDistr {
     }
 }
 
+#[crunch_fill]
 #[derive(Debug, Clone)]
 struct Normal {
-    mean: Option<f64>,
-    sd: Option<f64>,
-    xval: Option<f64>,
-    pval: Option<f64>,
-    comp: Comp,
-    /// \[mean, sd, xval, pval, comp, error\]
-    strings: [String; 6],
+    mean: Constr<f64>,
+    sd: Constr<f64>,
+    xval: Constr<f64>,
+    pval: Constr<f64>,
 }
 
 impl Default for Normal {
     fn default() -> Self {
         Self {
-            mean: Some(0.0),
-            sd: Some(1.0),
-            xval: Some(0.0),
-            pval: None,
             strings: [
                 String::from("0.0"),
                 String::from("1.0"),
-                String::from("0.0"),
+                String::from("<0.0"),
                 "".to_string(),
-                "<=".to_string(),
                 "".to_string(),
             ],
-            comp: Comp::LE,
+            mean: Constr::EQ(0.0),
+            sd: Constr::EQ(1.0),
+            xval: Constr::LT(0.0),
+            pval: Constr::EQ(0.5),
         }
     }
 }
@@ -342,7 +353,7 @@ impl Default for Normal {
 impl TryContinuous for Normal {
     fn pdf(&self, x: f64) -> Option<f64> {
         Some(
-            statrs::distribution::Normal::new(self.mean?, self.sd?)
+            statrs::distribution::Normal::new(*self.mean.as_val()?,* self.sd.as_val()?)
                 .ok()?
                 .pdf(x),
         )
@@ -350,7 +361,7 @@ impl TryContinuous for Normal {
 
     fn cdf(&self, x: f64) -> Option<f64> {
         Some(
-            statrs::distribution::Normal::new(self.mean?, self.sd?)
+            statrs::distribution::Normal::new(*self.mean.as_val()?, *self.sd.as_val()?)
                 .ok()?
                 .cdf(x),
         )
@@ -358,7 +369,7 @@ impl TryContinuous for Normal {
 
     fn inverse_cdf(&self, x: f64) -> Option<f64> {
         Some(
-            statrs::distribution::Normal::new(self.mean?, self.sd?)
+            statrs::distribution::Normal::new(*self.mean.as_val()?, *self.sd.as_val()?)
                 .ok()?
                 .inverse_cdf(x),
         )
@@ -371,24 +382,15 @@ impl Graph for Normal {
     }
 
     fn start(&self) -> f64 {
-        match (self.mean, self.sd) {
-            (Some(m), Some(sd)) => m - 3.0 * sd,
-            _ => 0.0,
-        }
+        self.mean.as_val().unwrap_or(&0.0) - 3.0 * self.sd.as_val().unwrap_or(&0.0)
     }
 
     fn end(&self) -> f64 {
-        match (self.mean, self.sd) {
-            (Some(m), Some(sd)) => m + 3.0 * sd,
-            _ => 0.0,
-        }
+        self.mean.as_val().cloned().unwrap_or(0.0) + 3.0 * self.sd.as_val().cloned().unwrap_or(0.0)
     }
 
     fn is_selected(&self, pos: f64) -> bool {
-        match self.xval {
-            Some(x) => self.comp.comp(pos, x),
-            None => false,
-        }
+        self.xval.comp(&pos)
     }
 }
 
@@ -396,38 +398,22 @@ impl Widget for &mut Normal {
     fn ui(self, ui: &mut Ui) -> egui::Response {
         let mut resp = ui.num_box("mean", &mut self.strings[0]);
         resp = resp.union(ui.num_box("std dev", &mut self.strings[1]));
-        let clear = self.mean.is_some() && self.sd.is_some();
         let x = ui.num_box("x value", &mut self.strings[2]);
-        if x.changed() && clear && !self.strings[2].is_empty() {
-            self.strings[3] = "".to_owned();
-        }
         resp = resp.union(x);
-        resp = resp.union(ui.text_edit_singleline(&mut self.strings[4]));
-        let p = ui.num_box("prob", &mut self.strings[3]);
-        if p.changed() && clear && !self.strings[3].is_empty() {
-            self.strings[2] = "".to_owned();
-        }
-        resp = resp.union(p);
+        resp = resp.union(ui.num_box("p value", &mut self.strings[3]));
         if resp.changed() {
-            self.mean = self.strings[0].parse().ok();
-            self.sd = self.strings[1].parse().ok();
-            self.xval = self.strings[2].parse().ok();
-            self.pval = self.strings[3].parse().ok();
-            if let Ok(comp) = self.strings[4].parse() {
-                self.comp = comp;
-            }
+            self.vfill();
         }
         if ui.button("Calculate").clicked() {
-            self.strings[4] = self.comp.to_string();
             resp.mark_changed();
             if let Err(s) = self.fill() {
-                self.strings[5] = s.to_owned();
+                self.strings[4] = s.to_owned();
             } else {
-                self.strings[5] = "".to_owned();
+                self.strings[4] = "".to_owned();
             }
         }
         resp = resp
-            .union(ui.label(RichText::new(&self.strings[5]).background_color(Color32::DARK_RED)));
+            .union(ui.label(RichText::new(&self.strings[4]).background_color(Color32::DARK_RED)));
         resp
     }
 }
@@ -443,34 +429,54 @@ impl Fillable for Normal {
                 Err("Not enough filled")
             }
             3 => {
-                if self.xval.is_none() {
-                    let p = match self.comp {
-                        Comp::GE | Comp::GT => 1.0 - self.pval.expect("Xval was only None"),
-                        Comp::LE | Comp::LT => self.pval.expect("Xval was only None"),
-                        _ => {
+                if !self.xval.is_some() {
+                    let Constr::EQ(p) = self.pval else {
+                        return Err("Probability must be set");
+                    };
+                    let fill = match self.xval {
+                        Constr::GENone | Constr::GTNone => {
+                            match self.inverse_cdf(1.0-p) {
+                                Some(n) => Constr::GE(n),
+                                None => {return Err("Not a valid probability.")},
+                            }
+                        },
+                        Constr::LENone | Constr::LTNone => {
+                            match self.inverse_cdf(p) {
+                                Some(n) => Constr::LE(n),
+                                None => {return Err("Not a valid probability.")},
+                            }
+                        },
+                        eq if eq.is_eq() => {
                             return Err("Cannot use exact in a continuous distribution.");
                         }
+                        _ => {
+                            return Err("Cannot use ranges for solving for x values.")
+                        }
                     };
-                    let fill = self.inverse_cdf(p).expect("Xval was only None");
-                    self.xval = Some(fill);
+                    self.xval = fill;
                     self.strings[2] = fill.to_string();
-                } else if self.pval.is_none() {
-                    let fill = self
-                        .cdf(self.xval.expect("Pval was only None"))
-                        .expect("Pval was only None, and distr is ok");
-                    let fill = match self.comp {
-                        Comp::GE | Comp::GT => 1.0 - fill,
-                        Comp::LE | Comp::LT => fill,
+                } else if !self.pval.is_some() {
+                    let fill = match self.xval {
+                        Constr::GE(x) | Constr::GT(x) => 1.0 - self.cdf(x).ok_or("Invalid x value")?,
+                        Constr::LE(x) | Constr::LT(x) => self.cdf(x).ok_or("Invalid x value")?,
+                        Constr::IN(a, b) => self.cdf(b).ok_or("Invalid x value")? - self.cdf(a).ok_or("Invalid x value")?,
+                        Constr::OUT(a, b) => 1.0 + self.cdf(a).ok_or("Invalid x value")? - self.cdf(b).ok_or("Invalid x value")?,
                         _ => {
                             return Err("Cannot use exact in a continuous distribution.");
                         }
                     };
-                    self.pval = Some(fill);
+                    self.pval = Constr::EQ(fill);
                     self.strings[3] = fill.to_string();
-                } else if self.mean.is_none() {
-                    let p = match self.comp {
-                        Comp::GE | Comp::GT => 1.0 - self.pval.expect("Mean was only None"),
-                        Comp::LE | Comp::LT => self.pval.expect("Mean was only None"),
+                } else if !self.mean.is_some() {
+                    let Constr::EQ(p) = self.pval else {
+                        return Err("Probability must be set");
+                    };
+                    let (x,p) = match self.xval {
+                        Constr::GE(x) | Constr::GT(x) => (x,1.0 - p),
+                        Constr::LE(x) | Constr::LT(x) => (x,p),
+                        rng if rng.is_range() => {
+                            return Err("Cannot use range to solve for mean.");
+                        }
                         _ => {
                             return Err("Cannot use exact in a continuous distribution.");
                         }
@@ -478,14 +484,20 @@ impl Fillable for Normal {
                     let inv = statrs::distribution::Normal::new(0., 1.)
                         .expect("SND cant fail")
                         .inverse_cdf(p);
-                    let fill = self.xval.expect("Mean was only none")
-                        - (self.sd.expect("Mean was only none") * inv);
-                    self.mean = Some(fill);
+                    let fill = x
+                        - (self.sd.as_val().expect("Mean was only none") * inv);
+                    self.mean = Constr::EQ(fill);
                     self.strings[0] = fill.to_string();
-                } else if self.sd.is_none() {
-                    let p = match self.comp {
-                        Comp::GE | Comp::GT => 1.0 - self.pval.expect("SD was only None"),
-                        Comp::LE | Comp::LT => self.pval.expect("SD was only None"),
+                } else if !self.sd.is_some() {
+                    let Constr::EQ(p) = self.pval else {
+                        return Err("Probability must be set");
+                    };
+                    let (x,p) = match self.xval {
+                        Constr::GE(x) | Constr::GT(x) => (x,1.0 - p),
+                        Constr::LE(x) | Constr::LT(x) => (x,p),
+                        rng if rng.is_range() => {
+                            return Err("Cannot use range to solve for mean.");
+                        }
                         _ => {
                             return Err("Cannot use exact in a continuous distribution.");
                         }
@@ -496,8 +508,8 @@ impl Fillable for Normal {
                     if inv == 0.0 {
                         return Err("Not enough information, prob must not be 0.5");
                     }
-                    let fill = (self.xval.expect("SD was only None")
-                        - self.mean.expect("SD was only None"))
+                    let fill = (x
+                        - self.mean.as_val().ok_or("Mean must be set")?)
                         / inv;
                     if fill < 0.0 {
                         if inv > 0.0 {
@@ -509,7 +521,7 @@ impl Fillable for Normal {
                     if fill == 0.0 {
                         return Err("Not enough information, mean and x value are the same");
                     }
-                    self.sd = Some(fill);
+                    self.sd = Constr::EQ(fill);
                     self.strings[1] = fill.to_string();
                 } else {
                     unreachable!();
@@ -524,24 +536,23 @@ impl Fillable for Normal {
     }
 }
 
+#[crunch_fill]
 #[derive(Debug, Clone)]
 struct ChiSquare {
-    freedom: Option<f64>,
-    xval: Option<f64>,
-    pval: Option<f64>,
-    /// \[freedom, xval, pval\]
-    strings: [String; 4],
+    freedom: Constr<f64>,
+    xval: Constr<f64>,
+    pval: Constr<f64>,
 }
 
 impl Default for ChiSquare {
     fn default() -> Self {
         Self {
-            freedom: Some(10.0),
-            xval: Some(1.0),
-            pval: None,
+            freedom: Constr::EQ(10.0),
+            xval: Constr::LT(1.0),
+            pval: Constr::None,
             strings: [
                 "10.0".to_owned(),
-                "1.0".to_owned(),
+                "<1.0".to_owned(),
                 "".to_owned(),
                 "".to_owned(),
             ],
@@ -552,7 +563,7 @@ impl Default for ChiSquare {
 impl TryContinuous for ChiSquare {
     fn pdf(&self, x: f64) -> Option<f64> {
         Some(
-            statrs::distribution::ChiSquared::new(self.freedom?)
+            statrs::distribution::ChiSquared::new(*self.freedom.as_val()?)
                 .ok()?
                 .pdf(x),
         )
@@ -560,7 +571,7 @@ impl TryContinuous for ChiSquare {
 
     fn cdf(&self, x: f64) -> Option<f64> {
         Some(
-            statrs::distribution::ChiSquared::new(self.freedom?)
+            statrs::distribution::ChiSquared::new(*self.freedom.as_val()?)
                 .ok()?
                 .cdf(x),
         )
@@ -568,7 +579,7 @@ impl TryContinuous for ChiSquare {
 
     fn inverse_cdf(&self, x: f64) -> Option<f64> {
         Some(
-            statrs::distribution::ChiSquared::new(self.freedom?)
+            statrs::distribution::ChiSquared::new(*self.freedom.as_val()?)
                 .ok()?
                 .inverse_cdf(x),
         )
@@ -578,21 +589,12 @@ impl TryContinuous for ChiSquare {
 impl Widget for &mut ChiSquare {
     fn ui(self, ui: &mut Ui) -> egui::Response {
         let mut resp = ui.num_box("freedom", &mut self.strings[0]);
-        let clear = self.freedom.is_some();
         let x = ui.num_box("x value", &mut self.strings[1]);
-        if x.changed() && clear && !self.strings[1].is_empty() {
-            self.strings[2] = "".to_owned();
-        }
         resp = resp.union(x);
         let p = ui.num_box("prob", &mut self.strings[2]);
-        if p.changed() && clear && !self.strings[2].is_empty() {
-            self.strings[1] = "".to_owned();
-        }
         resp = resp.union(p);
         if resp.changed() {
-            self.freedom = self.strings[0].parse().ok();
-            self.xval = self.strings[1].parse().ok();
-            self.pval = self.strings[2].parse().ok();
+            self.vfill();
         }
         if ui.button("Calculate").clicked() {
             resp.mark_changed();
@@ -619,30 +621,76 @@ impl Fillable for ChiSquare {
                 Err("Not enough filled")
             }
             2 => {
-                if self.xval.is_none() {
-                    let fill = self
-                        .inverse_cdf(self.pval.expect("Xval was only None"))
-                        .expect("Xval was only None");
-                    self.xval = Some(fill);
+                if !self.xval.is_some() {
+                    let Constr::EQ(p) = self.pval else {
+                        return Err("Probability must be set");
+                    };
+                    let fill = match self.xval {
+                        Constr::GENone | Constr::GTNone => {
+                            match self.inverse_cdf(1.0-p) {
+                                Some(n) => Constr::GE(n),
+                                None => {return Err("Not a valid probability.")},
+                            }
+                        },
+                        Constr::LENone | Constr::LTNone => {
+                            match self.inverse_cdf(p) {
+                                Some(n) => Constr::LE(n),
+                                None => {return Err("Not a valid probability.")},
+                            }
+                        },
+                        eq if eq.is_eq() => {
+                            return Err("Cannot use exact in a continuous distribution.");
+                        }
+                        _ => {
+                            return Err("Cannot use ranges for solving for x values.")
+                        }
+                    };
+                    self.xval = fill;
                     self.strings[1] = fill.to_string();
-                } else if self.pval.is_none() {
-                    let fill = self
-                        .cdf(self.xval.expect("Pval was only None"))
-                        .expect("Pval was only None, and distr is ok");
-                    self.pval = Some(fill);
+                } else if !self.pval.is_some() {
+                    let fill = match self.xval {
+                        Constr::GE(x) | Constr::GT(x) => {
+                            1.0 - self.cdf(x).expect("Pval was only None, and distr is ok")
+                        },
+                        Constr::LE(x) | Constr::LT(x) => {
+                            self.cdf(x).expect("Pval was only None, and distr is ok")
+                        },
+                        Constr::IN(a, b) => {
+                            self.cdf(b).expect("Pval was only None, and distr is ok") - self.cdf(a).expect("Pval was only None, and distr is ok")
+                        },
+                        Constr::OUT(a, b) => {
+                            1.0 - self.cdf(b).expect("Pval was only None, and distr is ok") + self.cdf(a).expect("Pval was only None, and distr is ok")
+                        }
+                        _ => return Err("X value must be an inequality")
+                    };
+                    self.pval = Constr::EQ(fill);
                     self.strings[2] = fill.to_string();
-                } else if self.freedom.is_none() {
-                    let fill = find_zero(|f| {
-                        Some(
-                            statrs::distribution::ChiSquared::new(f)
-                                .ok()?
-                                .cdf(self.xval.expect("Freedom was only None"))
-                                - self.pval.expect("Freedom was only None"),
-                        )
-                    });
+                } else if !self.freedom.is_some() {
+                    let Constr::EQ(p) = self.pval else {
+                        return Err("Probability must be set");
+                    };
+                    let fill = match self.xval {
+                        Constr::LE(x) | Constr::LT(x) => find_zero(|f| {
+                            Some(
+                                statrs::distribution::ChiSquared::new(f)
+                                    .ok()?
+                                    .cdf(x)
+                                    - p,
+                            )
+                        }),
+                        Constr::GE(x) | Constr::GT(x) => find_zero(|f| {
+                            Some(
+                                statrs::distribution::ChiSquared::new(f)
+                                    .ok()?
+                                    .cdf(x)
+                                    + 1.0 - p,
+                            )
+                        }),
+                        _ => return Err("X value must be an inequality.")
+                    };
                     match fill {
                         Some(n) => {
-                            self.freedom = Some(n);
+                            self.freedom = Constr::EQ(n);
                             self.strings[0] = n.to_string();
                         }
                         None => {
@@ -676,40 +724,36 @@ impl Graph for ChiSquare {
     }
 
     fn is_selected(&self, pos: f64) -> bool {
-        match self.xval {
-            Some(x) => x >= pos,
-            None => false,
-        }
+        self.xval.comp(&pos)
     }
 }
 
+#[crunch_fill]
 #[derive(Debug, Clone)]
 struct TDist {
-    location: Option<f64>,
-    scale: Option<f64>,
-    freedom: Option<f64>,
-    xval: Option<f64>,
-    pval: Option<f64>,
-    /// \[location, scale, freedom, xval, pval\]
-    strings: [String; 6],
+    location: Constr<f64>,
+    scale: Constr<f64>,
+    freedom: Constr<f64>,
+    xval: Constr<f64>,
+    pval: Constr<f64>,
 }
 
 impl Default for TDist {
     fn default() -> Self {
         Self {
-            freedom: Some(4.0),
-            xval: Some(0.0),
-            pval: None,
+            freedom: Constr::EQ(4.0),
+            xval: Constr::LE(0.0),
+            pval: Constr::None,
             strings: [
                 "0.0".to_owned(),
                 "1.0".to_owned(),
                 "4.0".to_owned(),
-                "0.0".to_owned(),
+                "<=0.0".to_owned(),
                 "".to_string(),
                 "".to_string(),
             ],
-            location: Some(0.0),
-            scale: Some(1.0),
+            location: Constr::EQ(0.0),
+            scale: Constr::EQ(1.0),
         }
     }
 }
@@ -717,7 +761,7 @@ impl Default for TDist {
 impl TryContinuous for TDist {
     fn pdf(&self, x: f64) -> Option<f64> {
         Some(
-            statrs::distribution::StudentsT::new(self.location?, self.scale?, self.freedom?)
+            statrs::distribution::StudentsT::new(*self.location.as_val()?, *self.scale.as_val()?, *self.freedom.as_val()?)
                 .ok()?
                 .pdf(x),
         )
@@ -725,7 +769,7 @@ impl TryContinuous for TDist {
 
     fn cdf(&self, x: f64) -> Option<f64> {
         Some(
-            statrs::distribution::StudentsT::new(self.location?, self.scale?, self.freedom?)
+            statrs::distribution::StudentsT::new(*self.location.as_val()?, *self.scale.as_val()?, *self.freedom.as_val()?)
                 .ok()?
                 .cdf(x),
         )
@@ -733,7 +777,7 @@ impl TryContinuous for TDist {
 
     fn inverse_cdf(&self, x: f64) -> Option<f64> {
         Some(
-            statrs::distribution::StudentsT::new(self.location?, self.scale?, self.freedom?)
+            statrs::distribution::StudentsT::new(*self.location.as_val()?, *self.scale.as_val()?, *self.freedom.as_val()?)
                 .ok()?
                 .inverse_cdf(x),
         )
@@ -745,23 +789,12 @@ impl Widget for &mut TDist {
         let mut resp = ui.num_box("location", &mut self.strings[0]);
         resp = resp.union(ui.num_box("scale", &mut self.strings[1]));
         resp = resp.union(ui.num_box("freedom", &mut self.strings[2]));
-        let clear = self.location.is_some() && self.scale.is_some() && self.freedom.is_some();
         let x = ui.num_box("x value", &mut self.strings[3]);
-        if x.changed() && clear && !self.strings[3].is_empty() {
-            self.strings[4] = "".to_owned();
-        }
         resp = resp.union(x);
         let p = ui.num_box("prob", &mut self.strings[4]);
-        if p.changed() && clear && !self.strings[4].is_empty() {
-            self.strings[3] = "".to_owned();
-        }
         resp = resp.union(p);
         if resp.changed() {
-            self.location = self.strings[0].parse().ok();
-            self.scale = self.strings[1].parse().ok();
-            self.freedom = self.strings[2].parse().ok();
-            self.xval = self.strings[3].parse().ok();
-            self.pval = self.strings[4].parse().ok();
+            self.vfill();
         }
         if ui.button("Calculate").clicked() {
             resp.mark_changed();
@@ -794,80 +827,151 @@ impl Fillable for TDist {
                 Err("Not enough filled")
             }
             4 => {
-                if self.xval.is_none() {
-                    let fill = self
-                        .inverse_cdf(self.pval.expect("Xval was only None"))
-                        .expect("Xval was only None");
-                    self.xval = Some(fill);
+                if !self.xval.is_some() {
+                    let Constr::EQ(p) = self.pval else {
+                        return Err("Probability must be set");
+                    };
+                    let fill = match self.xval {
+                        Constr::GENone | Constr::GTNone => Constr::GE(self
+                            .inverse_cdf(1.0 - p)
+                            .expect("Xval was only None")),
+                        Constr::LENone | Constr::LTNone => Constr::LE(self
+                            .inverse_cdf(p)
+                            .expect("Xval was only None")),
+                        _ => {
+                            return Err("Cannot use equal on x value.");
+                        }
+                    };
+                    self.xval = fill;
                     self.strings[3] = fill.to_string();
-                } else if self.pval.is_none() {
-                    let fill = self
-                        .cdf(self.xval.expect("Pval was only None"))
-                        .expect("Pval was only None, and distr is ok");
-                    self.pval = Some(fill);
+                } else if !self.pval.is_some() {
+
+                    let fill = match self.xval {
+                        Constr::GE(x) | Constr::GT(x) => {
+                            1.0 - self.cdf(x).expect("Pval was only None, and distr is ok")
+                        },
+                        Constr::LE(x) | Constr::LT(x) => {
+                            self.cdf(x).expect("Pval was only None, and distr is ok")
+                        },
+                        Constr::IN(a, b) => {
+                            self.cdf(b).expect("Pval was only None, and distr is ok") - self.cdf(a).expect("Pval was only None, and distr is ok")
+                        },
+                        Constr::OUT(a, b) => {
+                            1.0 - self.cdf(b).expect("Pval was only None, and distr is ok") + self.cdf(a).expect("Pval was only None, and distr is ok")
+                        }
+                        _ => return Err("X value must be an inequality")
+                    };
+                    self.pval = Constr::EQ(fill);
                     self.strings[4] = fill.to_string();
-                } else if self.freedom.is_none() {
-                    let l = self.location.expect("Freedon was only None");
-                    let sc = self.scale.expect("Freedom was only None");
-                    let xval = self.xval.expect("Freedom was only None");
-                    if l - xval == 0.0 {
-                        return Err("X value must not be the location");
-                    }
-                    let fill = find_zero(|f| {
-                        let distr = statrs::distribution::StudentsT::new(l, sc, f).ok()?;
-                        let test_p = distr.cdf(xval);
-                        Some(test_p - self.pval.expect("Freedom was only None"))
-                    });
+                } else if !self.freedom.is_some() {
+                    let Constr::EQ(l) = self.location else {
+                        return Err("Location must be set");
+                    };
+                    let Constr::EQ(sc) = self.scale else {
+                        return Err("Scale must be set");
+                    };
+                    let Constr::EQ(p) = self.pval else {
+                        return Err("Probability must be set");
+                    };
+                    let fill_rv = match self.xval {
+                        Constr::GE(x) | Constr::GT(x) => {
+                            if l - x == 0.0 {
+                                return Err("X value must not be the location");
+                            }
+                            let fill = find_zero(|f| {
+                                let distr = statrs::distribution::StudentsT::new(l, sc, f).ok()?;
+                                let test_p = distr.cdf(x);
+                                Some(test_p + p - 1.0)
+                            });
+                            fill.map(|fill| (fill, 1.0-statrs::distribution::StudentsT::new(l, sc, fill).unwrap().cdf(x)))
+                        },
+                        Constr::LE(x) | Constr::LT(x) => {
+                            if l - x == 0.0 {
+                                return Err("X value must not be the location");
+                            }
+                            let fill = find_zero(|f| {
+                                let distr = statrs::distribution::StudentsT::new(l, sc, f).ok()?;
+                                let test_p = distr.cdf(x);
+                                Some(test_p - p)
+                            });
+                            fill.map(|fill| (fill, statrs::distribution::StudentsT::new(l, sc, fill).unwrap().cdf(x)))
+                        }
+                        _ => return Err("X value must use inequality to solve for other value")
+                    };
                     //println!("Escaped find");
-                    match fill {
-                        Some(n) if n < 100000. => {
-                            self.freedom = Some(n);
+                    match fill_rv {
+                        Some((n,_)) if n < 100000. => {
+                            self.freedom = Constr::EQ(n);
                             self.strings[2] = n.to_string();
                         }
-                        Some(n) => {
-                            if (statrs::distribution::StudentsT::new(l, sc, n)
-                                .unwrap()
-                                .cdf(self.xval.unwrap())
-                                - self.pval.unwrap())
-                            .abs()
-                                > 0.0001
+                        Some((n,rv)) => {
+                            if (rv - p).abs() > 0.0001
                             {
                                 return Err("No freedom value found. P value must be closer to 0.5 than for the normal distribution");
                             } else {
-                                self.freedom = Some(100000.);
-                                self.strings[2] = 100000.0.to_string();
+                                self.freedom = Constr::EQ(n);
+                                self.strings[2] = n.to_string();
                             }
                         }
                         None => {
                             return Err("No freedom value found");
                         }
                     }
-                } else if self.location.is_none() {
+                } else if !self.location.is_some() {
+                    let Constr::EQ(f) = self.freedom else {
+                        return Err("Location must be set");
+                    };
+                    let Constr::EQ(sc) = self.scale else {
+                        return Err("Scale must be set");
+                    };
+                    let Constr::EQ(p) = self.pval else {
+                        return Err("Probability must be set");
+                    };
+                    let x = match self.xval {
+                        Constr::GE(x) |
+                        Constr::GT(x) => -x,
+                        Constr::LE(x) |
+                        Constr::LT(x) => x,
+                        _ => return Err("Must use inequality to solve for another value.")
+                    };
                     let inv = statrs::distribution::StudentsT::new(
                         0.0,
                         1.0,
-                        self.freedom.expect("Location was only None"),
+                        f,
                     )
                     .expect("Location was only None")
-                    .inverse_cdf(self.pval.expect("Location was only None"));
-                    let fill = self.xval.expect("Location was only None")
-                        - (self.scale.expect("Location was only None") * inv);
-                    self.location = Some(fill);
+                    .inverse_cdf(p);
+                    let fill = x - (sc * inv);
+                    self.location = Constr::EQ(fill);
                     self.strings[0] = fill.to_string();
-                } else if self.scale.is_none() {
+                } else if !self.scale.is_some() {
+                    let Constr::EQ(f) = self.freedom else {
+                        return Err("Location must be set");
+                    };
+                    let Constr::EQ(l) = self.location else {
+                        return Err("Scale must be set");
+                    };
+                    let Constr::EQ(p) = self.pval else {
+                        return Err("Probability must be set");
+                    };
+                    let x = match self.xval {
+                        Constr::GE(x) |
+                        Constr::GT(x) => -x,
+                        Constr::LE(x) |
+                        Constr::LT(x) => x,
+                        _ => return Err("Must use inequality to solve for another value.")
+                    };
                     let inv = statrs::distribution::StudentsT::new(
                         0.,
                         1.,
-                        self.freedom.expect("Scale was only None"),
+                        f,
                     )
                     .map_err(|_| "Freedom cannot be negative")?
-                    .inverse_cdf(self.pval.expect("Scale was only none"));
+                    .inverse_cdf(p);
                     if inv == 0.0 {
                         return Err("Not enough information, prob must not be 0.5");
                     }
-                    let fill = (self.xval.expect("Scale was only none")
-                        - self.location.expect("Scale was only none"))
-                        / inv;
+                    let fill = (x - l) / inv;
                     if fill < 0.0 {
                         if inv > 0.0 {
                             return Err("Prob > 0.5 but x value is less than the location");
@@ -878,7 +982,7 @@ impl Fillable for TDist {
                     if fill == 0.0 {
                         return Err("Not enough information, location and x value are the same");
                     }
-                    self.scale = Some(fill);
+                    self.scale = Constr::EQ(fill);
                     self.strings[1] = fill.to_string();
                 } else {
                     unreachable!();
@@ -907,37 +1011,33 @@ impl Graph for TDist {
     }
 
     fn is_selected(&self, pos: f64) -> bool {
-        match self.xval {
-            Some(x) => x >= pos,
-            None => false,
-        }
+        self.xval.comp(&pos)
     }
 }
 
+#[crunch_fill]
 #[derive(Debug, Clone)]
 struct FDist {
-    freedom1: Option<f64>,
-    freedom2: Option<f64>,
-    xval: Option<f64>,
-    pval: Option<f64>,
-    /// \[freedom1, freedom2, xval, pval\]
-    strings: [String; 5],
+    freedom1: Constr<f64>,
+    freedom2: Constr<f64>,
+    xval: Constr<f64>,
+    pval: Constr<f64>,
 }
 
 impl Default for FDist {
     fn default() -> Self {
         Self {
-            freedom1: Some(4.0),
-            xval: Some(1.0),
-            pval: None,
+            freedom1: Constr::EQ(4.0),
+            xval: Constr::LE(1.0),
+            pval: Constr::None,
             strings: [
                 "4.0".to_owned(),
                 "4.0".to_owned(),
-                "1.0".to_owned(),
+                "<1.0".to_owned(),
                 "".to_string(),
                 "".to_string(),
             ],
-            freedom2: Some(4.0),
+            freedom2: Constr::EQ(4.0),
         }
     }
 }
@@ -945,7 +1045,7 @@ impl Default for FDist {
 impl TryContinuous for FDist {
     fn pdf(&self, x: f64) -> Option<f64> {
         Some(
-            statrs::distribution::FisherSnedecor::new(self.freedom1?, self.freedom2?)
+            statrs::distribution::FisherSnedecor::new(*self.freedom1.as_val()?, *self.freedom2.as_val()?)
                 .ok()?
                 .pdf(x),
         )
@@ -953,7 +1053,7 @@ impl TryContinuous for FDist {
 
     fn cdf(&self, x: f64) -> Option<f64> {
         Some(
-            statrs::distribution::FisherSnedecor::new(self.freedom1?, self.freedom2?)
+            statrs::distribution::FisherSnedecor::new(*self.freedom1.as_val()?, *self.freedom2.as_val()?)
                 .ok()?
                 .cdf(x),
         )
@@ -961,7 +1061,7 @@ impl TryContinuous for FDist {
 
     fn inverse_cdf(&self, x: f64) -> Option<f64> {
         Some(
-            statrs::distribution::FisherSnedecor::new(self.freedom1?, self.freedom2?)
+            statrs::distribution::FisherSnedecor::new(*self.freedom1.as_val()?, *self.freedom2.as_val()?)
                 .ok()?
                 .inverse_cdf(x),
         )
@@ -973,20 +1073,11 @@ impl Widget for &mut FDist {
         let mut resp = ui.num_box("freedom1", &mut self.strings[0]);
         resp = resp.union(ui.num_box("freedom2", &mut self.strings[1]));
         let x = ui.num_box("x value", &mut self.strings[2]);
-        if x.changed() && !self.strings[2].is_empty() {
-            self.strings[3] = "".to_owned();
-        }
         resp = resp.union(x);
         let p = ui.num_box("prob", &mut self.strings[3]);
-        if p.changed() && !self.strings[3].is_empty() {
-            self.strings[2] = "".to_owned();
-        }
         resp = resp.union(p);
         if resp.changed() {
-            self.freedom1 = self.strings[0].parse().ok();
-            self.freedom2 = self.strings[1].parse().ok();
-            self.xval = self.strings[2].parse().ok();
-            self.pval = self.strings[3].parse().ok();
+            self.vfill()
         }
         if ui.button("Calculate").clicked() {
             resp.mark_changed();
@@ -1018,21 +1109,44 @@ impl Fillable for FDist {
                 Err("Not enough filled")
             }
             3 => {
-                if self.xval.is_none() {
-                    let fill = self
-                        .inverse_cdf(self.pval.expect("Xval was only None"))
-                        .expect("Xval was only None");
-                    self.xval = Some(fill);
+                if !self.xval.is_some() {
+                    let Constr::EQ(p) = self.pval else {
+                        return Err("Probability must be set");
+                    };
+                    let fill = match self.xval {
+                        Constr::GENone | Constr::GTNone => Constr::GE(self
+                            .inverse_cdf(1.0 - p)
+                            .expect("Xval was only None")),
+                        Constr::LENone | Constr::LTNone => Constr::LE(self
+                            .inverse_cdf(p)
+                            .expect("Xval was only None")),
+                        _ => {
+                            return Err("Cannot use equal on x value.");
+                        }
+                    };
+                    self.xval = fill;
                     self.strings[2] = fill.to_string();
-                } else if self.pval.is_none() {
-                    let fill = self
-                        .cdf(self.xval.expect("Pval was only None"))
-                        .expect("Pval was only None, and distr is ok");
-                    self.pval = Some(fill);
+                } else if !self.pval.is_some() {
+                    let fill = match self.xval {
+                        Constr::GE(x) | Constr::GT(x) => {
+                            1.0 - self.cdf(x).expect("Pval was only None, and distr is ok")
+                        },
+                        Constr::LE(x) | Constr::LT(x) => {
+                            self.cdf(x).expect("Pval was only None, and distr is ok")
+                        },
+                        Constr::IN(a, b) => {
+                            self.cdf(b).expect("Pval was only None, and distr is ok") - self.cdf(a).expect("Pval was only None, and distr is ok")
+                        },
+                        Constr::OUT(a, b) => {
+                            1.0 - self.cdf(b).expect("Pval was only None, and distr is ok") + self.cdf(a).expect("Pval was only None, and distr is ok")
+                        }
+                        _ => return Err("X value must be an inequality")
+                    };
+                    self.pval = Constr::EQ(fill);
                     self.strings[3] = fill.to_string();
-                } else if self.freedom1.is_none() {
+                } else if !self.freedom1.is_some() {
                     self.strings[4] = "Cannot solve for freedom yet".to_string();
-                } else if self.freedom2.is_none() {
+                } else if !self.freedom2.is_some() {
                     self.strings[4] = "Cannot solve for freedom yet".to_string();
                 } else {
                     unreachable!();
@@ -1061,10 +1175,7 @@ impl Graph for FDist {
     }
 
     fn is_selected(&self, pos: f64) -> bool {
-        match self.xval {
-            Some(x) => x >= pos,
-            None => false,
-        }
+        self.xval.comp(&pos)
     }
 }
 
@@ -1078,6 +1189,7 @@ struct Expon {
 
 impl Default for Expon {
     fn default() -> Self {
+        todo!();
         Self { mean: Some(1.0), xval: Some(1.0), pval: None, strings: [
             "1.0".to_string(),
             "1.0".to_string(),
