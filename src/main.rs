@@ -21,6 +21,7 @@ fn main() {
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
+/*
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 extern "C" {
@@ -32,6 +33,7 @@ extern "C" {
 fn log(s: &str) {
     println!("{}", s);
 }
+*/
 
 #[cfg(target_arch = "wasm32")]
 fn main() {}
@@ -155,7 +157,7 @@ impl<T: std::str::FromStr + Debug> FromStr for Constr<T> {
     type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        const inv: &'static str = "Not a valid input";
+        const INV: &'static str = "Not a valid input";
         let l = s.len();
         if s == ">=" {
             Ok(Self::GENone)
@@ -172,43 +174,43 @@ impl<T: std::str::FromStr + Debug> FromStr for Constr<T> {
         else if l>=2 && &s[..2] == ">=" {
             match s[2..].parse() {
                 Ok(n) => Ok(Self::GE(n)),
-                Err(_) => Err(inv),
+                Err(_) => Err(INV),
             }
         }
         else if l>=2 && &s[..2] == "<=" {
             match s[2..].parse() {
                 Ok(n) => Ok(Self::LE(n)),
-                Err(_) => Err(inv),
+                Err(_) => Err(INV),
             }
         }
         else if l>=2 && &s[..2] == "==" {
             match s[2..].parse() {
                 Ok(n) => Ok(Self::EQ(n)),
-                Err(_) => Err(inv),
+                Err(_) => Err(INV),
             }
         }
         else if l>=2 && &s[..2] == "!=" {
             match s[2..].parse() {
                 Ok(n) => Ok(Self::NE(n)),
-                Err(_) => Err(inv),
+                Err(_) => Err(INV),
             }
         }
         else if l>=1 && &s[..1] == ">" {
             match s[1..].parse() {
                 Ok(n) => Ok(Self::GT(n)),
-                Err(_) => Err(inv),
+                Err(_) => Err(INV),
             }
         }
         else if l>=1 && &s[..1] == "<" {
             match s[1..].parse() {
                 Ok(n) => Ok(Self::LT(n)),
-                Err(_) => Err(inv),
+                Err(_) => Err(INV),
             }
         }
         else if l>=1 && &s[..1] == "=" {
             match s[1..].parse() {
                 Ok(n) => Ok(Self::EQ(n)),
-                Err(_) => Err(inv),
+                Err(_) => Err(INV),
             }
         }
         else if l>=1 && &s[..1] == "[" {
@@ -224,10 +226,10 @@ impl<T: std::str::FromStr + Debug> FromStr for Constr<T> {
                 Ok(a) => {
                     match s[split+1..end].parse() {
                         Ok(b) => Ok(Self::IN(a, b)),
-                        Err(_) => Err(inv),
+                        Err(_) => Err(INV),
                     }
                 },
-                Err(_) => Err(inv),
+                Err(_) => Err(INV),
             }
         }
         else if l>=1 && &s[..1] == "]" {
@@ -243,10 +245,10 @@ impl<T: std::str::FromStr + Debug> FromStr for Constr<T> {
                 Ok(a) => {
                     match s[split+1..end].parse() {
                         Ok(b) => Ok(Self::OUT(a, b)),
-                        Err(_) => Err(inv),
+                        Err(_) => Err(INV),
                     }
                 },
-                Err(_) => Err(inv),
+                Err(_) => Err(INV),
             }
         }
         else if let Ok(v) = s.parse() {
