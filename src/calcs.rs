@@ -1,4 +1,5 @@
-use egui::{Ui, Widget};
+use egui::{Ui, Widget, RichText, Color32};
+use opencrunch_derive::crunch_fill;
 use statrs::{
     distribution::{ContinuousCDF, Normal},
     function,
@@ -43,16 +44,14 @@ impl Widget for &mut OpenCrunchSample {
     }
 }
 
+#[crunch_fill]
 #[derive(Clone)]
 pub(crate) struct SampleProbInf {
     sample_size: usize,
     mean: f64,
     sd: f64,
-    target_mean: f64,
-    prob: Result<f64, String>,
-    comp: Constr<f64>,
-    /// sample_size, mean, sd, target_mean, comp
-    strings: [String; 6],
+    target_mean: Constr<f64>,
+    prob: Constr<f64>,
 }
 
 impl Default for SampleProbInf {
@@ -61,17 +60,16 @@ impl Default for SampleProbInf {
             sample_size: 1,
             mean: 0.0,
             sd: 1.0,
-            target_mean: 0.0,
+            target_mean: Constr::LE(0.0),
             strings: [
                 1.to_string(),
                 0.0.to_string(),
                 1.0.to_string(),
-                0.0.to_string(),
-                "<=".to_string(),
+                "<0.0".to_string(),
+                0.5.to_string(),
                 "".to_string(),
             ],
-            prob: Err("".to_string()),
-            comp: Constr::LE(1.0),
+            prob: Constr::None,
         }
     }
 }
@@ -81,57 +79,45 @@ impl Widget for &mut SampleProbInf {
         let mut resp = ui.num_box("Sample Size", &mut self.strings[0]);
         resp = resp.union(ui.num_box("Population Mean", &mut self.strings[1]));
         resp = resp.union(ui.num_box("Population SD", &mut self.strings[2]));
-        resp = resp.union(ui.text_edit_singleline(&mut self.strings[4]));
         resp = resp.union(ui.num_box("Sample Mean", &mut self.strings[3]));
         if resp.changed() {
-            if let Ok(sample_size) = self.strings[0].parse() {
-                self.sample_size = sample_size;
-            }
-            if let Ok(mean) = self.strings[1].parse() {
-                self.mean = mean;
-            }
-            if let Ok(sd) = self.strings[2].parse() {
-                self.sd = sd;
-            }
-            if let Ok(target) = self.strings[3].parse() {
-                self.target_mean = target;
-            }
-            if let Ok(comp) = self.strings[4].parse() {
-                self.comp = comp;
-            }
+            self.vfill();
         }
         ui.horizontal(|ui| {
             ui.label("Prob");
-            ui.text_edit_singleline(&mut (self.strings[5].clone()))
+            ui.text_edit_singleline(&mut (self.strings[4].clone()))
         });
+        ui.label(RichText::new(&self.strings[5]).color(Color32::DARK_RED));
         if resp.changed() {
             //self.strings[4] = self.comp.to_string();
             match Normal::new(self.mean, self.sd / ((self.sample_size as f64).sqrt())) {
                 Ok(n) => {
-                    let fill = 1.0;
-                    let fill = match self.comp {
-                        Constr::GE(v) | Constr::GT(v) => 1.0 - fill,
-                        Constr::LE(_) | Constr::LT(_) => fill,
+                    let fill = match self.target_mean {
+                        Constr::GE(v) | Constr::GT(v) => 1.0 - n.cdf(v),
+                        Constr::LE(v) | Constr::LT(v) => n.cdf(v),
                         Constr::EQ(_) | Constr::NE(_) => {
-                            self.prob =
-                                Err("Cannot use exact in a continuous distribution.".to_string());
+                            self.prob = Constr::None;
+                            self.strings[4] = "".to_string();
                             self.strings[5] =
                                 "Cannot use exact in a continuous distribution.".to_string();
                             return resp;
                         }
-                        Constr::IN(a, b) => todo!(),
-                        Constr::OUT(_, _) => todo!(),
-                        Constr::None => todo!(),
-                        Constr::GENone => todo!(),
-                        Constr::GTNone => todo!(),
-                        Constr::LENone => todo!(),
-                        Constr::LTNone => todo!(),
+                        Constr::IN(a, b) => n.cdf(b) - n.cdf(a),
+                        Constr::OUT(a, b) => 1.0 - n.cdf(b) + n.cdf(a),
+                        _ => {
+                            self.prob = Constr::None;
+                            self.strings[4] = "".to_string();
+                            self.strings[5] = "Target mean must be set".to_string();
+                            return resp;
+                        }
                     };
-                    self.prob = Ok(fill);
-                    self.strings[5] = fill.to_string();
+                    self.prob = Constr::EQ(fill);
+                    self.strings[4] = fill.to_string();
+                    self.strings[5] = "".to_string();
                 }
                 Err(e) => {
-                    self.prob = Err(e.to_string());
+                    self.prob = Constr::None;
+                    self.strings[4] = "".to_string();
                     self.strings[5] = e.to_string();
                 }
             }
@@ -179,6 +165,7 @@ impl Widget for &mut Comb {
     }
 }
 
+#[crunch_fill]
 #[derive(Clone)]
 pub(crate) struct SampleProbFin {
     pop_size: usize,
@@ -187,11 +174,8 @@ pub(crate) struct SampleProbFin {
     mean: f64,
     sd: f64,
     sample_sd: f64,
-    target_mean: f64,
-    prob: Result<f64, String>,
-    comp: Constr<f64>,
-    /// pop_size, sample_size, mean, sd, target_mean, comp
-    strings: [String; 7],
+    target_mean: Constr<f64>,
+    prob: Constr<f64>,
 }
 
 impl Default for SampleProbFin {
@@ -202,18 +186,19 @@ impl Default for SampleProbFin {
             correct: 1.0,
             mean: 0.0,
             sd: 1.0,
-            target_mean: 0.0,
+            target_mean: Constr::LE(0.0),
             strings: [
-                10.to_string(),
+                20.to_string(),
                 1.to_string(),
-                0.0.to_string(),
                 1.0.to_string(),
                 0.0.to_string(),
-                "<=".to_string(),
+                1.0.to_string(),
+                1.0.to_string(),
+                "<=0.0".to_string(),
+                0.5.to_string(),
                 "".to_string(),
             ],
-            prob: Err("".to_string()),
-            comp: Constr::LE(1.0),
+            prob: Constr::EQ(0.5),
             sample_sd: 1.0,
         }
     }
@@ -224,71 +209,65 @@ impl Widget for &mut SampleProbFin {
         let mut resp = ui.num_box("Population Size", &mut self.strings[0]);
         resp = resp.union(ui.num_box("Sample Size", &mut self.strings[1]));
         if resp.changed() {
-            if let Ok(pop_size) = self.strings[0].parse() {
-                self.pop_size = pop_size;
-            }
-            if let Ok(sample_size) = self.strings[1].parse() {
-                self.sample_size = sample_size;
-            }
-            self.correct = ((self.pop_size - self.sample_size) as f64)/(self.pop_size as f64 - 1.0);
+            self.vfill();
+            //eprintln!("{} {}",self.pop_size, self.sample_size);
+            self.correct = (self.pop_size as f64 - self.sample_size as f64)/(self.pop_size as f64 - 1.0);
+            //eprintln!("{}", self.correct);
+            self.strings[2] = self.correct.to_string();
         }
         ui.horizontal(|ui| {
             ui.label("Correction");
             ui.text_edit_singleline(&mut self.correct.to_string());
         });
-        resp = resp.union(ui.num_box("Population Mean", &mut self.strings[2]));
-        resp = resp.union(ui.num_box("Population SD", &mut self.strings[3]));
-        resp = resp.union(ui.text_edit_singleline(&mut self.strings[5]));
-        resp = resp.union(ui.num_box("Sample Mean", &mut self.strings[4]));
+        resp = resp.union(ui.num_box("Population Mean", &mut self.strings[3]));
+        resp = resp.union(ui.num_box("Population SD", &mut self.strings[4]));
         if resp.changed() {
-            if let Ok(mean) = self.strings[2].parse() {
-                self.mean = mean;
-            }
-            if let Ok(sd) = self.strings[3].parse() {
-                self.sd = sd;
-            }
-            if let Ok(target) = self.strings[4].parse() {
-                self.target_mean = target;
-            }
-            if let Ok(comp) = self.strings[5].parse() {
-                self.comp = comp;
-            }
+            self.vfill();
             self.sample_sd = (self.sd * self.sd * self.correct / (self.sample_size as f64)).sqrt();
+            self.strings[5] = self.sample_sd.to_string();
         }
         ui.horizontal(|ui| {
             ui.label("Sample SD");
             ui.text_edit_singleline(&mut self.sample_sd.to_string());
         });
+        resp = resp.union(ui.num_box("Sample Mean", &mut self.strings[6]));
         ui.horizontal(|ui| {
             ui.label("Prob");
-            ui.text_edit_singleline(&mut (self.strings[6].clone()))
+            ui.text_edit_singleline(&mut (self.strings[7].clone()))
         });
+        ui.label(RichText::new(&self.strings[8]).color(Color32::DARK_RED));
         if resp.changed() {
+            self.vfill();
             //self.strings[4] = self.comp.to_string();
             match Normal::new(self.mean, self.sample_sd ) {
                 Ok(n) => {
-                    let fill = n.cdf(self.target_mean);
-                    let fill = match self.comp {
-                        Constr::GE(_) | Constr::GT(_) => 1.0 - fill,
-                        Constr::LE(_) | Constr::LT(_) => fill,
+                    let fill = match self.target_mean {
+                        Constr::GE(x) | Constr::GT(x) => 1.0 - n.cdf(x),
+                        Constr::LE(x) | Constr::LT(x) => n.cdf(x),
                         Constr::EQ(_) | Constr::NE(_) => {
-                            self.prob =
-                                Err("Cannot use exact in a continuous distribution.".to_string());
-                            self.strings[6] =
+                            self.prob = Constr::None;
+                            self.strings[7] = "".to_string();
+                            self.strings[8] =
                                 "Cannot use exact in a continuous distribution.".to_string();
                             return resp;
                         }
-                        Constr::IN(_, _) => todo!(),
-                        Constr::OUT(_, _) => todo!(),
-                        Constr::None => todo!(),
-                        _ => todo!(),
+                        Constr::IN(a, b) => n.cdf(b) - n.cdf(a),
+                        Constr::OUT(a, b) => 1.0 - n.cdf(b) + n.cdf(a),
+                        _ => {
+                            self.prob = Constr::None;
+                            self.strings[7] = "".to_string();
+                            self.strings[8] =
+                                "Must set target mean.".to_string();
+                            return resp;
+                        },
                     };
-                    self.prob = Ok(fill);
-                    self.strings[6] = fill.to_string();
+                    self.prob = Constr::EQ(fill);
+                    self.strings[7] = fill.to_string();
+                    self.strings[8] = "".to_string();
                 }
                 Err(e) => {
-                    self.prob = Err(e.to_string());
-                    self.strings[6] = e.to_string();
+                    self.prob = Constr::None;
+                    self.strings[8] = e.to_string();
                 }
             }
         }
