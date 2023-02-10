@@ -1,7 +1,7 @@
 use quote::quote;
-use proc_macro2::{TokenStream, TokenTree, Group};
+use proc_macro2::{TokenStream, TokenTree, Group, Punct, Spacing};
 
-/// Adds a field called strings that keeps track of all the 
+/// Adds a field called strings that keeps track of all the inputs of the thing
 #[proc_macro_attribute]
 pub fn crunch_fill(_attr: proc_macro::TokenStream, s: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let tree : TokenStream = s.into();
@@ -27,20 +27,23 @@ pub fn crunch_fill(_attr: proc_macro::TokenStream, s: proc_macro::TokenStream) -
                 [] => {end_comma = true; None}
             }).collect();
             let vals = names.len()+1; // another for the error
+            let nam : TokenStream = names.iter().flat_map(|n| [n.clone(), TokenTree::Punct(Punct::new(',', Spacing::Alone))]).collect();
+            let namstr = format!("{nam} error,");
+            let comm = quote!(#[doc = #namstr]);
             let fill = if end_comma {
                 quote!(
-                    /// #names
                     strings: [String; #vals],
                 )
             }
             else {
                 quote!(
-                    /// #names
                     ,strings: [String; #vals],
                 )
             };
             let mut new_fields = g.stream();
+            new_fields.extend(comm);
             new_fields.extend(fill);
+            //eprintln!("{new_fields}");
             (TokenTree::Group(Group::new(g.delimiter(), new_fields)), names)
         },
         _ => panic!("Not usable on unit structs."),
@@ -55,6 +58,7 @@ pub fn crunch_fill(_attr: proc_macro::TokenStream, s: proc_macro::TokenStream) -
 
     let vfill_impl = quote!(
         impl #struct_name {
+            /// Fills all fields of the struct from its strings.
             fn vfill(&mut self) {
                 #vfill
             }

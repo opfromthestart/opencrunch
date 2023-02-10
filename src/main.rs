@@ -157,46 +157,58 @@ impl<T: std::str::FromStr + Debug> FromStr for Constr<T> {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         const inv: &'static str = "Not a valid input";
         let l = s.len();
-        if l>=2 && &s[..2] == ">=" {
+        if s == ">=" {
+            Ok(Self::GENone)
+        }
+        else if s == ">" {
+            Ok(Self::GTNone)
+        }
+        else if s == "<" {
+            Ok(Self::LTNone)
+        }
+        else if s == "<=" {
+            Ok(Self::LENone)
+        }
+        else if l>=2 && &s[..2] == ">=" {
             match s[2..].parse() {
                 Ok(n) => Ok(Self::GE(n)),
-                Err(e) => Err(inv),
+                Err(_) => Err(inv),
             }
         }
         else if l>=2 && &s[..2] == "<=" {
             match s[2..].parse() {
                 Ok(n) => Ok(Self::LE(n)),
-                Err(e) => Err(inv),
+                Err(_) => Err(inv),
             }
         }
         else if l>=2 && &s[..2] == "==" {
             match s[2..].parse() {
                 Ok(n) => Ok(Self::EQ(n)),
-                Err(e) => Err(inv),
+                Err(_) => Err(inv),
             }
         }
         else if l>=2 && &s[..2] == "!=" {
             match s[2..].parse() {
                 Ok(n) => Ok(Self::NE(n)),
-                Err(e) => Err(inv),
+                Err(_) => Err(inv),
             }
         }
         else if l>=1 && &s[..1] == ">" {
             match s[1..].parse() {
                 Ok(n) => Ok(Self::GT(n)),
-                Err(e) => Err(inv),
+                Err(_) => Err(inv),
             }
         }
         else if l>=1 && &s[..1] == "<" {
             match s[1..].parse() {
                 Ok(n) => Ok(Self::LT(n)),
-                Err(e) => Err(inv),
+                Err(_) => Err(inv),
             }
         }
         else if l>=1 && &s[..1] == "=" {
             match s[1..].parse() {
                 Ok(n) => Ok(Self::EQ(n)),
-                Err(e) => Err(inv),
+                Err(_) => Err(inv),
             }
         }
         else if l>=1 && &s[..1] == "[" {
@@ -328,6 +340,6 @@ impl<T: PartialOrd + PartialEq> Constr<T> {
     }
 
     fn is_some(&self) -> bool {
-        !matches!(self, Constr::None | Constr::GENone | Constr::GTNone | Constr::LENone | Constr::GTNone)
+        !matches!(self, Constr::None | Constr::GENone | Constr::GTNone | Constr::LENone | Constr::LTNone)
     }
 }
