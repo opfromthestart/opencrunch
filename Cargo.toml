@@ -14,6 +14,7 @@ eframe = { version = "0.20.0", default-features = false, features = [
 statrs = "0.16.0"
 getrandom = {version = "0.2.8", features = ["js"]}
 opencrunch-derive = {path="opencrunch-derive"}
+meval = "0.2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2.0"

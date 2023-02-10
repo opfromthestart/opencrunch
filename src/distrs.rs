@@ -4,7 +4,8 @@ use egui::{
     plot::{Line, Polygon},
     Color32, RichText, Ui, Widget,
 };
-use opencrunch_derive::crunch_fill;
+use meval::Expr;
+use opencrunch_derive::{crunch_fill, crunch_fill_eval};
 use statrs::distribution::{Continuous, ContinuousCDF};
 
 use crate::{empty_resp, Constr, NumBox};
@@ -323,7 +324,7 @@ impl Widget for &mut CDistr {
     }
 }
 
-#[crunch_fill]
+#[crunch_fill_eval]
 #[derive(Debug, Clone)]
 struct Normal {
     mean: Constr<f64>,
@@ -536,7 +537,7 @@ impl Fillable for Normal {
     }
 }
 
-#[crunch_fill]
+#[crunch_fill_eval]
 #[derive(Debug, Clone)]
 struct ChiSquare {
     freedom: Constr<f64>,
@@ -728,7 +729,7 @@ impl Graph for ChiSquare {
     }
 }
 
-#[crunch_fill]
+#[crunch_fill_eval]
 #[derive(Debug, Clone)]
 struct TDist {
     location: Constr<f64>,
@@ -832,12 +833,14 @@ impl Fillable for TDist {
                         return Err("Probability must be set");
                     };
                     let fill = match self.xval {
-                        Constr::GENone | Constr::GTNone => Constr::GE(self
+                        Constr::GENone | Constr::GTNone => Constr::GE( self
                             .inverse_cdf(1.0 - p)
-                            .expect("Xval was only None")),
+                            .expect("Xval was only None")
+                            .to_string().parse().unwrap()),
                         Constr::LENone | Constr::LTNone => Constr::LE(self
                             .inverse_cdf(p)
-                            .expect("Xval was only None")),
+                            .expect("Xval was only None")
+                            .to_string().parse().unwrap()),
                         _ => {
                             return Err("Cannot use equal on x value.");
                         }
@@ -1015,7 +1018,7 @@ impl Graph for TDist {
     }
 }
 
-#[crunch_fill]
+#[crunch_fill_eval]
 #[derive(Debug, Clone)]
 struct FDist {
     freedom1: Constr<f64>,

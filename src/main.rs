@@ -18,6 +18,7 @@ fn main() {
     );
 }
 
+use meval::Expr;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
@@ -105,9 +106,10 @@ pub(crate) fn empty_resp(ui: &Ui) -> egui::Response {
 }
 
 fn coerce_expr(s: &str) -> String {
-    s.chars()
-        .filter(|c| c.is_ascii_digit() || ".-<=>![,]".contains(*c))
-        .collect()
+    //s.chars()
+    //    .filter(|c| c.is_ascii_digit() || ".-<=>![,]".contains(*c))
+    //    .collect()
+    s.to_string()
 }
 
 trait NumBox {
@@ -301,7 +303,9 @@ impl<T: PartialOrd + PartialEq> Constr<T> {
             Constr::LTNone => false,
         }
     }
+}
 
+impl<T> Constr<T> {
     fn as_val(&self) -> Option<&T> {
         match self {
             Constr::EQ(n) | Constr::NE(n) => Some(n),
@@ -343,5 +347,25 @@ impl<T: PartialOrd + PartialEq> Constr<T> {
 
     fn is_some(&self) -> bool {
         !matches!(self, Constr::None | Constr::GENone | Constr::GTNone | Constr::LENone | Constr::LTNone)
+    }
+}
+
+impl Constr<Expr> {
+    fn eval(&self) -> Result<Constr<f64>, meval::Error> {
+        match self {
+            Constr::GE(x) => Ok(Constr::GE(x.eval()?)),
+            Constr::LE(x) => Ok(Constr::LE(x.eval()?)),
+            Constr::GT(x) => Ok(Constr::GT(x.eval()?)),
+            Constr::LT(x) => Ok(Constr::LT(x.eval()?)),
+            Constr::GENone => Ok(Constr::GENone),
+            Constr::GTNone => Ok(Constr::GTNone),
+            Constr::LENone => Ok(Constr::LENone),
+            Constr::LTNone => Ok(Constr::LTNone),
+            Constr::EQ(x) => Ok(Constr::EQ(x.eval()?)),
+            Constr::NE(x) => Ok(Constr::NE(x.eval()?)),
+            Constr::IN(a, b) => Ok(Constr::IN(a.eval()?, b.eval()?)),
+            Constr::OUT(a, b) => Ok(Constr::OUT(a.eval()?, b.eval()?)),
+            Constr::None => Ok(Constr::None),
+        }
     }
 }
