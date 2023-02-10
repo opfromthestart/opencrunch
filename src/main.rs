@@ -48,7 +48,7 @@ pub async fn start(canvas_id: &str) -> Result<(), eframe::wasm_bindgen::JsValue>
     eframe::start_web(
         canvas_id,
         web_options,
-        Box::new(|_| Box::new(OpenCrunchCDistr::default())),
+        Box::new(|_| Box::new(OpenCrunch::default())),
     )
     .await?;
     Ok(())
