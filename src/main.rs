@@ -1,7 +1,7 @@
 mod calcs;
 mod distrs;
 
-use std::{str::FromStr, fmt::Display};
+use std::{str::FromStr, fmt::{Display, Debug}};
 
 use calcs::OpenCrunchSample;
 use distrs::OpenCrunchCDistr;
@@ -102,9 +102,9 @@ pub(crate) fn empty_resp(ui: &Ui) -> egui::Response {
     ui.interact(Rect::everything_above(0.0), Id::new("none"), Sense::click())
 }
 
-fn coerce_numeric(s: &str) -> String {
+fn coerce_expr(s: &str) -> String {
     s.chars()
-        .filter(|c| c.is_ascii_digit() || *c == '.' || *c == '-')
+        .filter(|c| c.is_ascii_digit() || ".-<=>![,]".contains(*c))
         .collect()
 }
 
@@ -127,19 +127,23 @@ impl NumBox for Ui {
             };
             */
             let resp = ui.text_edit_singleline(v);
-            *(v) = coerce_numeric(v);
+            *(v) = coerce_expr(v);
             resp
         })
         .inner
     }
 }
 
-#[derive(Clone, Debug)]
-pub(crate) enum Constr<T: Display + PartialOrd + PartialEq> {
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Constr<T> {
     GE(T),
     LE(T),
     GT(T),
     LT(T),
+    GENone,
+    GTNone,
+    LENone,
+    LTNone,
     EQ(T),
     NE(T),
     IN(T,T),
@@ -147,60 +151,63 @@ pub(crate) enum Constr<T: Display + PartialOrd + PartialEq> {
     None,
 }
 
-impl<T: Display + PartialOrd + PartialEq + std::str::FromStr> FromStr for Constr<T> {
+impl<T: std::str::FromStr + Debug> FromStr for Constr<T> {
     type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         const inv: &'static str = "Not a valid input";
-        if &s[..2] == ">=" {
+        let l = s.len();
+        if l>=2 && &s[..2] == ">=" {
             match s[2..].parse() {
                 Ok(n) => Ok(Self::GE(n)),
                 Err(e) => Err(inv),
             }
         }
-        else if &s[..2] == "<=" {
+        else if l>=2 && &s[..2] == "<=" {
             match s[2..].parse() {
                 Ok(n) => Ok(Self::LE(n)),
                 Err(e) => Err(inv),
             }
         }
-        else if &s[..2] == "==" {
+        else if l>=2 && &s[..2] == "==" {
             match s[2..].parse() {
                 Ok(n) => Ok(Self::EQ(n)),
                 Err(e) => Err(inv),
             }
         }
-        else if &s[..2] == "!=" {
+        else if l>=2 && &s[..2] == "!=" {
             match s[2..].parse() {
                 Ok(n) => Ok(Self::NE(n)),
                 Err(e) => Err(inv),
             }
         }
-        else if &s[..1] == ">" {
+        else if l>=1 && &s[..1] == ">" {
             match s[1..].parse() {
                 Ok(n) => Ok(Self::GT(n)),
                 Err(e) => Err(inv),
             }
         }
-        else if &s[..1] == "<" {
+        else if l>=1 && &s[..1] == "<" {
             match s[1..].parse() {
                 Ok(n) => Ok(Self::LT(n)),
                 Err(e) => Err(inv),
             }
         }
-        else if &s[..1] == "=" {
+        else if l>=1 && &s[..1] == "=" {
             match s[1..].parse() {
                 Ok(n) => Ok(Self::EQ(n)),
                 Err(e) => Err(inv),
             }
         }
-        else if &s[..1] == "[" {
+        else if l>=1 && &s[..1] == "[" {
             let Some(split) = s[1..].find(',') else {
                 return Err("Comma expected in range");
             };
+            let split = split+1;
             let Some(end) = s[split..].find(']') else {
                 return Err("End ] expected");
             };
+            let end = split + end;
             match s[1..split].parse() {
                 Ok(a) => {
                     match s[split+1..end].parse() {
@@ -211,13 +218,38 @@ impl<T: Display + PartialOrd + PartialEq + std::str::FromStr> FromStr for Constr
                 Err(_) => Err(inv),
             }
         }
+        else if l>=1 && &s[..1] == "]" {
+            let Some(split) = s[1..].find(',') else {
+                return Err("Comma expected in range");
+            };
+            let split = split+1;
+            let Some(end) = s[split..].find('[') else {
+                return Err("End [ expected");
+            };
+            let end = split + end;
+            match s[1..split].parse() {
+                Ok(a) => {
+                    match s[split+1..end].parse() {
+                        Ok(b) => Ok(Self::OUT(a, b)),
+                        Err(_) => Err(inv),
+                    }
+                },
+                Err(_) => Err(inv),
+            }
+        }
+        else if let Ok(v) = s.parse() {
+            Ok(Self::EQ(v))
+        }
+        else if l == 0 {
+            Ok(Self::None)
+        }
         else {
             Err("Not a valid constraint")
         }
     }
 }
 
-impl<T: Display + PartialOrd + PartialEq> ToString for Constr<T> {
+impl<T: Display> ToString for Constr<T> {
     fn to_string(&self) -> String {
         match self {
             Constr::GE(v) => format!(">={v}"),
@@ -229,11 +261,15 @@ impl<T: Display + PartialOrd + PartialEq> ToString for Constr<T> {
             Constr::IN(a, b) => format!("[{a},{b}]"),
             Constr::OUT(a, b) => format!("]{a},{b}["),
             Constr::None => format!(""),
+            Constr::GENone => format!(">="),
+            Constr::GTNone => format!(">"),
+            Constr::LENone => format!("<="),
+            Constr::LTNone => format!("<"),
         }
     }
 }
 
-impl<T: Display + PartialOrd + PartialEq> Constr<T> {
+impl<T: PartialOrd + PartialEq> Constr<T> {
     fn comp(&self, arg: &T) -> bool {
         match self {
             Constr::GE(v) => arg>=v,
@@ -245,10 +281,53 @@ impl<T: Display + PartialOrd + PartialEq> Constr<T> {
             Constr::IN(a, b) => arg>=a && arg<=b,
             Constr::OUT(a, b) => arg<a || arg>b,
             Constr::None => true,
+            Constr::GENone => false,
+            Constr::GTNone => false,
+            Constr::LENone => false,
+            Constr::LTNone => false,
         }
     }
-}
 
-trait UseComp<T: Display + PartialOrd + PartialEq> {
-    fn apply(&self, comp: Constr<T>) -> Result<T, String>;
+    fn as_val(&self) -> Option<&T> {
+        match self {
+            Constr::EQ(n) | Constr::NE(n) => Some(n),
+            _ => None
+        }
+    }
+
+    fn is_ineq(&self) -> bool {
+        match self {
+            Constr::GE(_) |
+            Constr::LE(_) |
+            Constr::GT(_) |
+            Constr::LT(_) |
+            Constr::GENone |
+            Constr::LENone |
+            Constr::GTNone |
+            Constr::LTNone |
+            Constr::IN(_, _) |
+            Constr::OUT(_, _) => true,
+            _ => false,
+        }
+    }
+
+    fn is_eq(&self) -> bool {
+        match self {
+            Constr::EQ(_) |
+            Constr::NE(_) => true,
+            _ => false,
+        }
+    }
+
+    fn is_range(&self) -> bool {
+        match self {
+            Constr::IN(_,_) |
+            Constr::OUT(_,_) => true,
+            _ => false,
+        }
+    }
+
+    fn is_some(&self) -> bool {
+        !matches!(self, Constr::None | Constr::GENone | Constr::GTNone | Constr::LENone | Constr::GTNone)
+    }
 }

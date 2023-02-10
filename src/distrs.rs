@@ -4,9 +4,10 @@ use egui::{
     plot::{Line, Polygon},
     Color32, RichText, Ui, Widget,
 };
+use opencrunch_derive::crunch_fill;
 use statrs::distribution::{Continuous, ContinuousCDF};
 
-use crate::{empty_resp, Constr, NumBox, UseComp};
+use crate::{empty_resp, Constr, NumBox};
 
 trait TryContinuous {
     fn pdf(&self, x: f64) -> Option<f64>;
@@ -23,12 +24,20 @@ trait Graph: TryContinuous {
     fn start(&self) -> f64;
     fn end(&self) -> f64;
 
+    fn get_gap(&self) -> f64 {
+        (self.end() - self.start()) / (self.get_terms() as f64)
+    }
+
+    fn get_terms(&self) -> usize {
+        480
+    }
+
     /// Gets a printable line
     fn get_line(&self) -> Vec<[f64; 2]> {
         let s = self.start();
-        let e = self.end();
-        (0..640)
-            .map(|x| s + (e - s) * (x as f64) / 640.0)
+        let gap = self.get_gap();
+        (0..self.get_terms())
+            .map(|x| s + (x as f64) * gap)
             .map(|x| (x, self.pdf(x)))
             .filter(|(_, v)| v.is_some())
             .map(|(x, v)| [x, v.unwrap()])
@@ -44,23 +53,23 @@ trait Graph: TryContinuous {
             .into_iter()
             .filter(|[x, _]| self.is_selected(*x))
             .collect();
+        let gap = self.get_gap();
         if !top.is_empty() {
             top.windows(2)
-                .map(|l| {
+                .filter_map(|l| {
                     let s = l[0][0];
                     let e = l[1][0];
-                    [l[0], l[1], [e, 0.0], [s, 0.0]]
+                    if e-s>gap*1.0001 {
+                        return None;
+                    }
+                    else {
+                        Some([[s, 0.0], l[0], l[1], [e, 0.0],])
+                    }
                 })
                 .collect()
         } else {
             vec![]
         }
-    }
-}
-
-impl UseComp<f64> for Normal {
-    fn apply(&self, comp: Constr<f64>) -> Result<f64, String> {
-        todo!()
     }
 }
 
@@ -181,7 +190,7 @@ impl Widget for &mut OpenCrunchCDistr {
         let polys: Vec<_> = self
             .fill
             .iter()
-            .map(|x| Polygon::new(x.to_vec()).color(Color32::RED))
+            .map(|x| Polygon::new(x.to_vec()).color(Color32::RED).fill_alpha(1.0))
             .collect();
         egui::panel::CentralPanel::default()
             .show(ctx, |ui| {
@@ -288,33 +297,29 @@ impl Widget for &mut CDistr {
     }
 }
 
+#[crunch_fill]
 #[derive(Debug, Clone)]
 struct Normal {
-    mean: Option<f64>,
-    sd: Option<f64>,
-    xval: Option<f64>,
-    pval: Option<f64>,
-    comp: Constr<f64>,
-    /// \[mean, sd, xval, pval, comp, error\]
-    strings: [String; 6],
+    mean: Constr<f64>,
+    sd: Constr<f64>,
+    xval: Constr<f64>,
+    pval: Constr<f64>,
 }
 
 impl Default for Normal {
     fn default() -> Self {
         Self {
-            mean: Some(0.0),
-            sd: Some(1.0),
-            xval: Some(0.0),
-            pval: None,
             strings: [
                 String::from("0.0"),
                 String::from("1.0"),
-                String::from("0.0"),
+                String::from("<0.0"),
                 "".to_string(),
-                "<=".to_string(),
                 "".to_string(),
             ],
-            comp: Constr::LE,
+            mean: Constr::EQ(0.0),
+            sd: Constr::EQ(1.0),
+            xval: Constr::LT(0.0),
+            pval: Constr::EQ(0.5),
         }
     }
 }
@@ -322,7 +327,7 @@ impl Default for Normal {
 impl TryContinuous for Normal {
     fn pdf(&self, x: f64) -> Option<f64> {
         Some(
-            statrs::distribution::Normal::new(self.mean?, self.sd?)
+            statrs::distribution::Normal::new(*self.mean.as_val()?,* self.sd.as_val()?)
                 .ok()?
                 .pdf(x),
         )
@@ -330,7 +335,7 @@ impl TryContinuous for Normal {
 
     fn cdf(&self, x: f64) -> Option<f64> {
         Some(
-            statrs::distribution::Normal::new(self.mean?, self.sd?)
+            statrs::distribution::Normal::new(*self.mean.as_val()?, *self.sd.as_val()?)
                 .ok()?
                 .cdf(x),
         )
@@ -338,7 +343,7 @@ impl TryContinuous for Normal {
 
     fn inverse_cdf(&self, x: f64) -> Option<f64> {
         Some(
-            statrs::distribution::Normal::new(self.mean?, self.sd?)
+            statrs::distribution::Normal::new(*self.mean.as_val()?, *self.sd.as_val()?)
                 .ok()?
                 .inverse_cdf(x),
         )
@@ -351,24 +356,15 @@ impl Graph for Normal {
     }
 
     fn start(&self) -> f64 {
-        match (self.mean, self.sd) {
-            (Some(m), Some(sd)) => m - 3.0 * sd,
-            _ => 0.0,
-        }
+        self.mean.as_val().unwrap_or(&0.0) - 3.0 * self.sd.as_val().unwrap_or(&0.0)
     }
 
     fn end(&self) -> f64 {
-        match (self.mean, self.sd) {
-            (Some(m), Some(sd)) => m + 3.0 * sd,
-            _ => 0.0,
-        }
+        self.mean.as_val().cloned().unwrap_or(0.0) + 3.0 * self.sd.as_val().cloned().unwrap_or(0.0)
     }
 
     fn is_selected(&self, pos: f64) -> bool {
-        match self.xval {
-            Some(x) => self.comp.comp(pos, x),
-            None => false,
-        }
+        self.xval.comp(&pos)
     }
 }
 
@@ -376,38 +372,22 @@ impl Widget for &mut Normal {
     fn ui(self, ui: &mut Ui) -> egui::Response {
         let mut resp = ui.num_box("mean", &mut self.strings[0]);
         resp = resp.union(ui.num_box("std dev", &mut self.strings[1]));
-        let clear = self.mean.is_some() && self.sd.is_some();
         let x = ui.num_box("x value", &mut self.strings[2]);
-        if x.changed() && clear && !self.strings[2].is_empty() {
-            self.strings[3] = "".to_owned();
-        }
         resp = resp.union(x);
-        resp = resp.union(ui.text_edit_singleline(&mut self.strings[4]));
-        let p = ui.num_box("prob", &mut self.strings[3]);
-        if p.changed() && clear && !self.strings[3].is_empty() {
-            self.strings[2] = "".to_owned();
-        }
-        resp = resp.union(p);
+        resp = resp.union(ui.num_box("p value", &mut self.strings[3]));
         if resp.changed() {
-            self.mean = self.strings[0].parse().ok();
-            self.sd = self.strings[1].parse().ok();
-            self.xval = self.strings[2].parse().ok();
-            self.pval = self.strings[3].parse().ok();
-            if let Ok(comp) = self.strings[4].parse() {
-                self.comp = comp;
-            }
+            self.vfill();
         }
         if ui.button("Calculate").clicked() {
-            self.strings[4] = self.comp.to_string();
             resp.mark_changed();
             if let Err(s) = self.fill() {
-                self.strings[5] = s.to_owned();
+                self.strings[4] = s.to_owned();
             } else {
-                self.strings[5] = "".to_owned();
+                self.strings[4] = "".to_owned();
             }
         }
         resp = resp
-            .union(ui.label(RichText::new(&self.strings[5]).background_color(Color32::DARK_RED)));
+            .union(ui.label(RichText::new(&self.strings[4]).background_color(Color32::DARK_RED)));
         resp
     }
 }
@@ -423,34 +403,54 @@ impl Fillable for Normal {
                 Err("Not enough filled")
             }
             3 => {
-                if self.xval.is_none() {
-                    let p = match self.comp {
-                        Constr::GE | Constr::GT => 1.0 - self.pval.expect("Xval was only None"),
-                        Constr::LE | Constr::LT => self.pval.expect("Xval was only None"),
-                        _ => {
+                if !self.xval.is_some() {
+                    let Constr::EQ(p) = self.pval else {
+                        return Err("Pobability must be set");
+                    };
+                    let fill = match self.xval {
+                        Constr::GENone | Constr::GTNone => {
+                            match self.inverse_cdf(1.0-p) {
+                                Some(n) => n,
+                                None => {return Err("Not a valid probability.")},
+                            }
+                        },
+                        Constr::LENone | Constr::LTNone => {
+                            match self.inverse_cdf(p) {
+                                Some(n) => n,
+                                None => {return Err("Not a valid probability.")},
+                            }
+                        },
+                        eq if eq.is_eq() => {
                             return Err("Cannot use exact in a continuous distribution.");
                         }
+                        _ => {
+                            return Err("Cannot use ranges for solving for x values.")
+                        }
                     };
-                    let fill = self.inverse_cdf(p).expect("Xval was only None");
-                    self.xval = Some(fill);
+                    self.xval = Constr::EQ(fill);
                     self.strings[2] = fill.to_string();
-                } else if self.pval.is_none() {
-                    let fill = self
-                        .cdf(self.xval.expect("Pval was only None"))
-                        .expect("Pval was only None, and distr is ok");
-                    let fill = match self.comp {
-                        Constr::GE | Constr::GT => 1.0 - fill,
-                        Constr::LE | Constr::LT => fill,
+                } else if !self.pval.is_some() {
+                    let fill = match self.xval {
+                        Constr::GE(x) | Constr::GT(x) => 1.0 - self.cdf(x).ok_or("Invalid x value")?,
+                        Constr::LE(x) | Constr::LT(x) => self.cdf(x).ok_or("Invalid x value")?,
+                        Constr::IN(a, b) => self.cdf(b).ok_or("Invalid x value")? - self.cdf(a).ok_or("Invalid x value")?,
+                        Constr::OUT(a, b) => 1.0 + self.cdf(a).ok_or("Invalid x value")? - self.cdf(b).ok_or("Invalid x value")?,
                         _ => {
                             return Err("Cannot use exact in a continuous distribution.");
                         }
                     };
-                    self.pval = Some(fill);
+                    self.pval = Constr::EQ(fill);
                     self.strings[3] = fill.to_string();
-                } else if self.mean.is_none() {
-                    let p = match self.comp {
-                        Constr::GE | Constr::GT => 1.0 - self.pval.expect("Mean was only None"),
-                        Constr::LE | Constr::LT => self.pval.expect("Mean was only None"),
+                } else if !self.mean.is_some() {
+                    let Constr::EQ(p) = self.pval else {
+                        return Err("Pobability must be set");
+                    };
+                    let (x,p) = match self.xval {
+                        Constr::GE(x) | Constr::GT(x) => (x,1.0 - p),
+                        Constr::LE(x) | Constr::LT(x) => (x,p),
+                        rng if rng.is_range() => {
+                            return Err("Cannot use range to solve for mean.");
+                        }
                         _ => {
                             return Err("Cannot use exact in a continuous distribution.");
                         }
@@ -458,14 +458,20 @@ impl Fillable for Normal {
                     let inv = statrs::distribution::Normal::new(0., 1.)
                         .expect("SND cant fail")
                         .inverse_cdf(p);
-                    let fill = self.xval.expect("Mean was only none")
-                        - (self.sd.expect("Mean was only none") * inv);
-                    self.mean = Some(fill);
+                    let fill = x
+                        - (self.sd.as_val().expect("Mean was only none") * inv);
+                    self.mean = Constr::EQ(fill);
                     self.strings[0] = fill.to_string();
-                } else if self.sd.is_none() {
-                    let p = match self.comp {
-                        Constr::GE | Constr::GT => 1.0 - self.pval.expect("SD was only None"),
-                        Constr::LE | Constr::LT => self.pval.expect("SD was only None"),
+                } else if !self.sd.is_some() {
+                    let Constr::EQ(p) = self.pval else {
+                        return Err("Pobability must be set");
+                    };
+                    let (x,p) = match self.xval {
+                        Constr::GE(x) | Constr::GT(x) => (x,1.0 - p),
+                        Constr::LE(x) | Constr::LT(x) => (x,p),
+                        rng if rng.is_range() => {
+                            return Err("Cannot use range to solve for mean.");
+                        }
                         _ => {
                             return Err("Cannot use exact in a continuous distribution.");
                         }
@@ -476,8 +482,8 @@ impl Fillable for Normal {
                     if inv == 0.0 {
                         return Err("Not enough information, prob must not be 0.5");
                     }
-                    let fill = (self.xval.expect("SD was only None")
-                        - self.mean.expect("SD was only None"))
+                    let fill = (x
+                        - self.mean.as_val().ok_or("Mean must be set")?)
                         / inv;
                     if fill < 0.0 {
                         if inv > 0.0 {
@@ -489,7 +495,7 @@ impl Fillable for Normal {
                     if fill == 0.0 {
                         return Err("Not enough information, mean and x value are the same");
                     }
-                    self.sd = Some(fill);
+                    self.sd = Constr::EQ(fill);
                     self.strings[1] = fill.to_string();
                 } else {
                     unreachable!();

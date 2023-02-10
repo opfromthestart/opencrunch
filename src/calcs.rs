@@ -71,7 +71,7 @@ impl Default for SampleProbInf {
                 "".to_string(),
             ],
             prob: Err("".to_string()),
-            comp: Constr::LE,
+            comp: Constr::LE(1.0),
         }
     }
 }
@@ -108,6 +108,7 @@ impl Widget for &mut SampleProbInf {
             //self.strings[4] = self.comp.to_string();
             match Normal::new(self.mean, self.sd / ((self.sample_size as f64).sqrt())) {
                 Ok(n) => {
+                    let fill = 1.0;
                     let fill = match self.comp {
                         Constr::GE(v) | Constr::GT(v) => 1.0 - fill,
                         Constr::LE(_) | Constr::LT(_) => fill,
@@ -118,8 +119,13 @@ impl Widget for &mut SampleProbInf {
                                 "Cannot use exact in a continuous distribution.".to_string();
                             return resp;
                         }
-                        Constr::IN(a, b) => ,
+                        Constr::IN(a, b) => todo!(),
                         Constr::OUT(_, _) => todo!(),
+                        Constr::None => todo!(),
+                        Constr::GENone => todo!(),
+                        Constr::GTNone => todo!(),
+                        Constr::LENone => todo!(),
+                        Constr::LTNone => todo!(),
                     };
                     self.prob = Ok(fill);
                     self.strings[5] = fill.to_string();
@@ -207,7 +213,7 @@ impl Default for SampleProbFin {
                 "".to_string(),
             ],
             prob: Err("".to_string()),
-            comp: Constr::LE,
+            comp: Constr::LE(1.0),
             sample_sd: 1.0,
         }
     }
@@ -263,15 +269,19 @@ impl Widget for &mut SampleProbFin {
                 Ok(n) => {
                     let fill = n.cdf(self.target_mean);
                     let fill = match self.comp {
-                        Constr::GE | Constr::GT => 1.0 - fill,
-                        Constr::LE | Constr::LT => fill,
-                        Constr::EQ | Constr::NE => {
+                        Constr::GE(_) | Constr::GT(_) => 1.0 - fill,
+                        Constr::LE(_) | Constr::LT(_) => fill,
+                        Constr::EQ(_) | Constr::NE(_) => {
                             self.prob =
                                 Err("Cannot use exact in a continuous distribution.".to_string());
                             self.strings[6] =
                                 "Cannot use exact in a continuous distribution.".to_string();
                             return resp;
                         }
+                        Constr::IN(_, _) => todo!(),
+                        Constr::OUT(_, _) => todo!(),
+                        Constr::None => todo!(),
+                        _ => todo!(),
                     };
                     self.prob = Ok(fill);
                     self.strings[6] = fill.to_string();
