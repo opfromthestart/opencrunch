@@ -12,7 +12,7 @@ pub fn crunch_fill(_attr: proc_macro::TokenStream, s: proc_macro::TokenStream) -
 
     let struct_pos = vtree.iter().position(|x| {
         match x {
-            TokenTree::Ident(i) => i.to_string() == "struct",
+            TokenTree::Ident(i) => *i == "struct",
             _ => false
         }
     }).unwrap();
@@ -79,7 +79,7 @@ pub fn crunch_fill_eval(_attr: proc_macro::TokenStream, s: proc_macro::TokenStre
 
     let struct_pos = vtree.iter().position(|x| {
         match x {
-            TokenTree::Ident(i) => i.to_string() == "struct",
+            TokenTree::Ident(i) => *i == "struct",
             _ => false
         }
     }).unwrap();

@@ -1,4 +1,4 @@
-use egui::{Ui, Widget, RichText, Color32};
+use egui::{Color32, RichText, Ui, Widget};
 use opencrunch_derive::crunch_fill;
 use statrs::{
     distribution::{ContinuousCDF, Normal},
@@ -102,8 +102,8 @@ impl Widget for &mut SampleProbInf {
                                 "Cannot use exact in a continuous distribution.".to_string();
                             return resp;
                         }
-                        Constr::IN(a, b) => n.cdf(b) - n.cdf(a),
-                        Constr::OUT(a, b) => 1.0 - n.cdf(b) + n.cdf(a),
+                        Constr::In(a, b) => n.cdf(b) - n.cdf(a),
+                        Constr::Out(a, b) => 1.0 - n.cdf(b) + n.cdf(a),
                         _ => {
                             self.prob = Constr::None;
                             self.strings[4] = "".to_string();
@@ -211,7 +211,8 @@ impl Widget for &mut SampleProbFin {
         if resp.changed() {
             self.vfill();
             //eprintln!("{} {}",self.pop_size, self.sample_size);
-            self.correct = (self.pop_size as f64 - self.sample_size as f64)/(self.pop_size as f64 - 1.0);
+            self.correct =
+                (self.pop_size as f64 - self.sample_size as f64) / (self.pop_size as f64 - 1.0);
             //eprintln!("{}", self.correct);
             self.strings[2] = self.correct.to_string();
         }
@@ -239,7 +240,7 @@ impl Widget for &mut SampleProbFin {
         if resp.changed() {
             self.vfill();
             //self.strings[4] = self.comp.to_string();
-            match Normal::new(self.mean, self.sample_sd ) {
+            match Normal::new(self.mean, self.sample_sd) {
                 Ok(n) => {
                     let fill = match self.target_mean {
                         Constr::GE(x) | Constr::GT(x) => 1.0 - n.cdf(x),
@@ -251,15 +252,14 @@ impl Widget for &mut SampleProbFin {
                                 "Cannot use exact in a continuous distribution.".to_string();
                             return resp;
                         }
-                        Constr::IN(a, b) => n.cdf(b) - n.cdf(a),
-                        Constr::OUT(a, b) => 1.0 - n.cdf(b) + n.cdf(a),
+                        Constr::In(a, b) => n.cdf(b) - n.cdf(a),
+                        Constr::Out(a, b) => 1.0 - n.cdf(b) + n.cdf(a),
                         _ => {
                             self.prob = Constr::None;
                             self.strings[7] = "".to_string();
-                            self.strings[8] =
-                                "Must set target mean.".to_string();
+                            self.strings[8] = "Must set target mean.".to_string();
                             return resp;
-                        },
+                        }
                     };
                     self.prob = Constr::EQ(fill);
                     self.strings[7] = fill.to_string();
