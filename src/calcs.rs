@@ -1,5 +1,6 @@
 use egui::{Color32, RichText, Ui, Widget};
-use opencrunch_derive::crunch_fill;
+use meval::Expr;
+use opencrunch_derive::{crunch_fill, crunch_fill_eval};
 use statrs::{
     distribution::{ContinuousCDF, Normal},
     function,
@@ -14,6 +15,7 @@ enum Calcs {
     SampInf(SampleProbInf),
     SampFin(SampleProbFin),
     Comb(Comb),
+    Calc(Calc),
 }
 
 #[derive(Default)]
@@ -33,6 +35,9 @@ impl Widget for &mut OpenCrunchSample {
             if ui.button("Comb/Perm").clicked() {
                 self.sample = Calcs::Comb(Comb::default());
             }
+            if ui.button("Calculator").clicked() {
+                self.sample = Calcs::Calc(Calc::default());
+            }
         });
 
         match &mut self.sample {
@@ -40,6 +45,7 @@ impl Widget for &mut OpenCrunchSample {
             Calcs::SampInf(sam) => ui.add(sam),
             Calcs::Comb(c) => ui.add(c),
             Calcs::SampFin(sam) => ui.add(sam),
+            Calcs::Calc(calc) => ui.add(calc),
         }
     }
 }
@@ -271,6 +277,33 @@ impl Widget for &mut SampleProbFin {
                 }
             }
         }
+        resp
+    }
+}
+
+#[crunch_fill]
+#[derive(Clone)]
+struct Calc {
+    field: Expr,
+}
+
+impl Default for Calc {
+    fn default() -> Self {
+        Self { field: "1+2".parse().unwrap(), strings: ["1+2".to_owned(), "".to_owned()] }
+    }
+}
+
+impl Widget for &mut Calc {
+    fn ui(self, ui: &mut Ui) -> egui::Response {
+        let resp = ui.num_box("", &mut self.strings[0]);
+        if resp.changed() {
+            self.vfill();
+            self.strings[1] = match self.field.eval() {
+                Ok(n) => n.to_string(),
+                Err(e) => e.to_string(),
+            }
+        }
+        ui.num_box("", &mut self.strings[1].clone());
         resp
     }
 }
