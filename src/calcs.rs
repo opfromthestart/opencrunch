@@ -16,6 +16,7 @@ enum Calcs {
     SampFin(SampleProbFin),
     Comb(Comb),
     Calc(Calc),
+    Cheby(Cheby),
 }
 
 #[derive(Default)]
@@ -38,6 +39,9 @@ impl Widget for &mut OpenCrunchSample {
             if ui.button("Calculator").clicked() {
                 self.sample = Calcs::Calc(Calc::default());
             }
+            if ui.button("Chebyshev").clicked() {
+                self.sample = Calcs::Cheby(Cheby::default());
+            }
         });
 
         match &mut self.sample {
@@ -46,6 +50,7 @@ impl Widget for &mut OpenCrunchSample {
             Calcs::Comb(c) => ui.add(c),
             Calcs::SampFin(sam) => ui.add(sam),
             Calcs::Calc(calc) => ui.add(calc),
+            Calcs::Cheby(cheb) => ui.add(cheb),
         }
     }
 }
@@ -304,6 +309,44 @@ impl Widget for &mut Calc {
             }
         }
         ui.num_box("", &mut self.strings[1].clone());
+        resp
+    }
+}
+
+#[crunch_fill]
+#[derive(Clone)]
+struct Cheby {
+    mean: f64,
+    sd: f64,
+    sample_size: usize,
+    deviation: f64,
+}
+
+impl Default for Cheby {
+    fn default() -> Self {
+        Self { mean: 0.0, sd: 1.0, sample_size: 25, deviation: 1.5, strings: [
+            "0.0".to_string(),
+            "1.0".to_string(),
+            "25".to_string(),
+            "1.5".to_string(),
+            "".to_string(),
+        ],
+        }
+    }
+}
+
+impl Widget for &mut Cheby {
+    fn ui(self, ui: &mut Ui) -> egui::Response {
+        let mut resp = ui.num_box("mean", &mut self.strings[0]);
+        resp = resp.union(ui.num_box("sd", &mut self.strings[1]));
+        resp = resp.union(ui.num_box("sample size", &mut self.strings[2]));
+        resp = resp.union(ui.num_box("deviation", &mut self.strings[3]));
+        if resp.changed() {
+            self.vfill();
+            let ch = self.sd*self.sd/(self.sample_size as f64)/self.deviation/self.deviation;
+            self.strings[4] = ch.to_string();
+        }
+        ui.num_box("", &mut self.strings[4].clone());
         resp
     }
 }
