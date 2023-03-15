@@ -1,8 +1,8 @@
 use egui::{Color32, RichText, Ui, Widget};
 use meval::Expr;
-use opencrunch_derive::{crunch_fill, crunch_fill_eval};
+use opencrunch_derive::{crunch_fill};
 use statrs::{
-    distribution::{ContinuousCDF, Normal},
+    distribution::{ContinuousCDF, Normal, StudentsT},
     function,
 };
 
@@ -17,14 +17,18 @@ enum Calcs {
     Comb(Comb),
     Calc(Calc),
     Cheby(Cheby),
+    ZOneStats(ZOneStats),
+    TOneStats(TOneStats),
+    ZTwoStats(ZTwoStats),
+    TTwoStats(TTwoStats),
 }
 
 #[derive(Default)]
-pub(crate) struct OpenCrunchSample {
+pub(crate) struct OpenCrunchCalcs {
     sample: Calcs,
 }
 
-impl Widget for &mut OpenCrunchSample {
+impl Widget for &mut OpenCrunchCalcs {
     fn ui(self, ui: &mut Ui) -> egui::Response {
         ui.horizontal(|ui| {
             if ui.button("Probability of Sample").clicked() {
@@ -42,6 +46,18 @@ impl Widget for &mut OpenCrunchSample {
             if ui.button("Chebyshev").clicked() {
                 self.sample = Calcs::Cheby(Cheby::default());
             }
+            if ui.button("Z Stats").clicked() {
+                self.sample = Calcs::ZOneStats(ZOneStats::default());
+            }
+            if ui.button("Z Stats 2").clicked() {
+                self.sample = Calcs::ZTwoStats(ZTwoStats::default());
+            }
+            if ui.button("T Stats").clicked() {
+                self.sample = Calcs::TOneStats(TOneStats::default());
+            }
+            if ui.button("T Stats 2").clicked() {
+                self.sample = Calcs::TTwoStats(TTwoStats::default());
+            }
         });
 
         match &mut self.sample {
@@ -51,6 +67,27 @@ impl Widget for &mut OpenCrunchSample {
             Calcs::SampFin(sam) => ui.add(sam),
             Calcs::Calc(calc) => ui.add(calc),
             Calcs::Cheby(cheb) => ui.add(cheb),
+            Calcs::ZOneStats(z) => ui.add(z),
+            Calcs::TOneStats(t) => ui.add(t),
+            Calcs::ZTwoStats(z) => ui.add(z),
+            Calcs::TTwoStats(t) => ui.add(t),
+        }
+    }
+}
+
+impl ToString for OpenCrunchCalcs {
+    fn to_string(&self) -> String {
+        match self.sample {
+            Calcs::None => "OpenCrunch - Calcs".to_owned(),
+            Calcs::SampInf(_) => "OpenCrunch - Calcs - Sample".to_owned(),
+            Calcs::SampFin(_) => "OpenCrunch - Calcs - Sample Finite".to_owned(),
+            Calcs::Comb(_) => "OpenCrunch - Calcs - Combinatorics".to_owned(),
+            Calcs::Calc(_) => "OpenCrunch - Calcs - Calculator".to_owned(),
+            Calcs::Cheby(_) => "OpenCrunch - Calcs - Chebyshev".to_owned(),
+            Calcs::ZOneStats(_) => "OpenCrunch - Calcs - Z Stats".to_owned(),
+            Calcs::TOneStats(_) => "OpenCrunch - Calcs - T Stats".to_owned(),
+            Calcs::ZTwoStats(_) => "OpenCrunch - Calcs - 2 Z Stats".to_owned(),
+            Calcs::TTwoStats(_) => "OpenCrunch - Calcs - 2 T Stats".to_owned(),
         }
     }
 }
@@ -347,6 +384,327 @@ impl Widget for &mut Cheby {
             self.strings[4] = ch.to_string();
         }
         ui.num_box("", &mut self.strings[4].clone());
+        resp
+    }
+}
+
+#[crunch_fill]
+#[derive(Clone)]
+pub(crate) struct ZOneStats {
+    sample_mean: Expr,
+    sample_dev: Expr,
+    sample_size: usize,
+    confidence: f32,
+    interval: Constr<f32>,
+}
+
+impl Default for ZOneStats {
+    fn default() -> Self {
+        Self { sample_mean: "0.0".parse().unwrap(), 
+            sample_dev: "1.0".parse().unwrap(), 
+            sample_size: 30, 
+            strings: [
+                "0.0".to_string(),
+                "1.0".to_string(),
+                "30".to_string(),
+                "0.95".to_string(),
+                "[-1.96, 1.96]".to_string(),
+                "".to_string(),
+            ],
+            confidence: 0.95,
+            interval: Constr::In(-1.96, 1.96), }
+    }
+}
+
+
+impl Widget for &mut ZOneStats {
+    fn ui(self, ui: &mut Ui) -> egui::Response {
+        let mut resp = ui.num_box("mean", &mut self.strings[0]);
+        resp = resp.union(ui.num_box("sd", &mut self.strings[1]));
+        resp = resp.union(ui.num_box("sample size", &mut self.strings[2]));
+        resp = resp.union(ui.num_box("confidence", &mut self.strings[3]));
+        if resp.changed() {
+            self.vfill();
+            let mut f = || {
+            let Ok(mean) = self.sample_mean.eval() else {
+                self.strings[5] = "Mean is invalid".to_owned();
+                return;
+            };
+            let Ok(dev) = self.sample_dev.eval() else {
+                self.strings[5] = "Standard deviation is invalid".to_owned();
+                return;
+            };
+
+            let std_err = dev / (self.sample_size as f64).sqrt();
+
+            let Ok(n) = Normal::new(mean, std_err) else {
+                self.strings[5] = "Not a valid normal distr".to_string();
+                return;
+            };
+
+            let int_l = n.inverse_cdf((1.0-self.confidence as f64)/2.0);
+            let int_h = n.inverse_cdf((1.0+self.confidence as f64)/2.0);
+
+            self.interval = Constr::In(int_l as f32, int_h as f32);
+
+            self.strings[4] = self.interval.to_string();
+            self.strings[5].clear();
+            };
+            f();
+        }
+        ui.num_box("", &mut self.strings[4].clone());
+        ui.label(&self.strings[5]);
+        resp
+    }
+}
+
+#[crunch_fill]
+#[derive(Clone)]
+pub(crate) struct TOneStats {
+    sample_mean: Expr,
+    sample_dev: Expr,
+    sample_size: usize,
+    confidence: f32,
+    interval: Constr<f32>,
+}
+
+impl Default for TOneStats {
+    fn default() -> Self {
+        Self { sample_mean: "0.0".parse().unwrap(), 
+            sample_dev: "1.0".parse().unwrap(), 
+            sample_size: 30, 
+            strings: [
+                "0.0".to_string(),
+                "1.0".to_string(),
+                "30".to_string(),
+                "0.95".to_string(),
+                "[-1.96, 1.96]".to_string(),
+                "".to_string(),
+            ],
+            confidence: 0.95,
+            interval: Constr::In(-1.96, 1.96), }
+    }
+}
+
+
+impl Widget for &mut TOneStats {
+    fn ui(self, ui: &mut Ui) -> egui::Response {
+        let mut resp = ui.num_box("mean", &mut self.strings[0]);
+        resp = resp.union(ui.num_box("sd", &mut self.strings[1]));
+        resp = resp.union(ui.num_box("sample size", &mut self.strings[2]));
+        resp = resp.union(ui.num_box("confidence", &mut self.strings[3]));
+        if resp.changed() {
+            self.vfill();
+            let mut f = || {
+                let Ok(mean) = self.sample_mean.eval() else {
+                    self.strings[5] = "Mean is invalid".to_owned();
+                    return;
+                };
+                let Ok(dev) = self.sample_dev.eval() else {
+                    self.strings[5] = "Standard deviation is invalid".to_owned();
+                    return;
+                };
+    
+                let std_err = dev / (self.sample_size as f64).sqrt();
+    
+                let Ok(n) = StudentsT::new(mean, std_err, self.sample_size as f64 - 1.0) else {
+                    self.strings[5] = "Not a valid T distr".to_string();
+                    return;
+                };
+    
+                let int_l = n.inverse_cdf((1.0-self.confidence as f64)/2.0);
+                let int_h = n.inverse_cdf((1.0+self.confidence as f64)/2.0);
+    
+                self.interval = Constr::In(int_l as f32, int_h as f32);
+    
+                self.strings[4] = self.interval.to_string();
+                self.strings[5].clear();
+            };
+            f();
+        }
+        ui.num_box("", &mut self.strings[4].clone());
+        ui.label(&self.strings[5]);
+        resp
+    }
+}
+
+#[crunch_fill]
+#[derive(Clone)]
+pub(crate) struct ZTwoStats {
+    sample_mean_1: Expr,
+    sample_dev_1: Expr,
+    sample_size_1: usize,
+    sample_mean_2: Expr,
+    sample_dev_2: Expr,
+    sample_size_2: usize,
+    confidence: f32,
+    interval: Constr<f32>,
+}
+
+impl Default for ZTwoStats {
+    fn default() -> Self {
+        Self { sample_mean_1: "0.0".parse().unwrap(), 
+            sample_dev_1: "1.0".parse().unwrap(), 
+            sample_size_1: 30, 
+            sample_mean_2: "0.0".parse().unwrap(), 
+            sample_dev_2: "1.0".parse().unwrap(),
+            sample_size_2: 30, 
+            confidence: 0.95, 
+            interval: Constr::None, 
+            strings: [
+                "0.0".to_string(),
+                "1.0".to_string(),
+                "30".to_string(),
+                "0.0".to_string(),
+                "1.0".to_string(),
+                "30".to_string(),
+                "0.95".to_string(),
+                "".to_string(),
+                "".to_string(),
+            ] }
+    }
+}
+
+impl Widget for &mut ZTwoStats {
+    fn ui(self, ui: &mut Ui) -> egui::Response {
+        let mut resp = ui.num_box("mean 1", &mut self.strings[0]);
+        resp = resp.union(ui.num_box("sd 1", &mut self.strings[1]));
+        resp = resp.union(ui.num_box("sample size 1", &mut self.strings[2]));
+        resp = resp.union(ui.num_box("mean 2", &mut self.strings[3]));
+        resp = resp.union(ui.num_box("sd 2", &mut self.strings[4]));
+        resp = resp.union(ui.num_box("sample size 2", &mut self.strings[5]));
+        resp = resp.union(ui.num_box("confidence", &mut self.strings[6]));
+        if resp.changed() {
+            self.vfill();
+            let mut f = || {
+                let Ok(mean1) = self.sample_mean_1.eval() else {
+                    self.strings[8] = "Mean 1 is invalid".to_owned();
+                    return;
+                };
+                let Ok(dev1) = self.sample_dev_1.eval() else {
+                    self.strings[8] = "Standard deviation 1 is invalid".to_owned();
+                    return;
+                };
+                let Ok(mean2) = self.sample_mean_2.eval() else {
+                    self.strings[8] = "Mean 1 is invalid".to_owned();
+                    return;
+                };
+                let Ok(dev2) = self.sample_dev_2.eval() else {
+                    self.strings[8] = "Standard deviation 1 is invalid".to_owned();
+                    return;
+                };
+    
+                let std_err = (dev1*dev1 / self.sample_size_1 as f64 + dev2*dev2 / self.sample_size_2 as f64).sqrt();
+    
+                let Ok(n) = Normal::new(mean1 - mean2, std_err) else {
+                    self.strings[8] = "Not a valid Normal distr".to_string();
+                    return;
+                };
+    
+                let int_l = n.inverse_cdf((1.0-self.confidence as f64)/2.0);
+                let int_h = n.inverse_cdf((1.0+self.confidence as f64)/2.0);
+    
+                self.interval = Constr::In(int_l as f32, int_h as f32);
+    
+                self.strings[7] = self.interval.to_string();
+                self.strings[8].clear();
+            };
+            f();
+        }
+        ui.num_box("", &mut self.strings[7].clone());
+        ui.label(&self.strings[8]);
+        resp
+    }
+}
+
+#[crunch_fill]
+#[derive(Clone)]
+pub(crate) struct TTwoStats {
+    sample_mean_1: Expr,
+    sample_dev_1: Expr,
+    sample_size_1: usize,
+    sample_mean_2: Expr,
+    sample_dev_2: Expr,
+    sample_size_2: usize,
+    confidence: f32,
+    interval: Constr<f32>,
+}
+
+impl Default for TTwoStats {
+    fn default() -> Self {
+        Self { sample_mean_1: "0.0".parse().unwrap(), 
+            sample_dev_1: "1.0".parse().unwrap(), 
+            sample_size_1: 30, 
+            sample_mean_2: "0.0".parse().unwrap(), 
+            sample_dev_2: "1.0".parse().unwrap(),
+            sample_size_2: 30, 
+            confidence: 0.95, 
+            interval: Constr::None, 
+            strings: [
+                "0.0".to_string(),
+                "1.0".to_string(),
+                "30".to_string(),
+                "0.0".to_string(),
+                "1.0".to_string(),
+                "30".to_string(),
+                "0.95".to_string(),
+                "".to_string(),
+                "".to_string(),
+            ] }
+    }
+}
+
+impl Widget for &mut TTwoStats {
+    fn ui(self, ui: &mut Ui) -> egui::Response {
+        let mut resp = ui.num_box("mean 1", &mut self.strings[0]);
+        resp = resp.union(ui.num_box("sd 1", &mut self.strings[1]));
+        resp = resp.union(ui.num_box("sample size 1", &mut self.strings[2]));
+        resp = resp.union(ui.num_box("mean 2", &mut self.strings[3]));
+        resp = resp.union(ui.num_box("sd 2", &mut self.strings[4]));
+        resp = resp.union(ui.num_box("sample size 2", &mut self.strings[5]));
+        resp = resp.union(ui.num_box("confidence", &mut self.strings[6]));
+        if resp.changed() {
+            self.vfill();
+            let mut f = || {
+                let Ok(mean1) = self.sample_mean_1.eval() else {
+                    self.strings[8] = "Mean 1 is invalid".to_owned();
+                    return;
+                };
+                let Ok(dev1) = self.sample_dev_1.eval() else {
+                    self.strings[8] = "Standard deviation 1 is invalid".to_owned();
+                    return;
+                };
+                let Ok(mean2) = self.sample_mean_2.eval() else {
+                    self.strings[8] = "Mean 1 is invalid".to_owned();
+                    return;
+                };
+                let Ok(dev2) = self.sample_dev_2.eval() else {
+                    self.strings[8] = "Standard deviation 1 is invalid".to_owned();
+                    return;
+                };
+    
+                let std_err = (dev1*dev1 / self.sample_size_1 as f64 + dev2*dev2 / self.sample_size_2 as f64).sqrt();
+                let a = dev1*dev1/self.sample_size_1 as f64;
+                let b = dev2*dev2/self.sample_size_2 as f64;
+                let df = (a+b)*(a+b)/(a*a/(self.sample_size_1 as f64 - 1.0) + b*b/(self.sample_size_2 as f64 - 1.0));
+    
+                let Ok(n) = StudentsT::new(mean1 - mean2, std_err, df) else {
+                    self.strings[8] = "Not a valid T distr".to_string();
+                    return;
+                };
+    
+                let int_l = n.inverse_cdf((1.0-self.confidence as f64)/2.0);
+                let int_h = n.inverse_cdf((1.0+self.confidence as f64)/2.0);
+    
+                self.interval = Constr::In(int_l as f32, int_h as f32);
+    
+                self.strings[7] = self.interval.to_string();
+                self.strings[8].clear();
+            };
+            f();
+        }
+        ui.num_box("", &mut self.strings[7].clone());
+        ui.label(&self.strings[8]);
         resp
     }
 }

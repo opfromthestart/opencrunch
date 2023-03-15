@@ -6,7 +6,7 @@ use std::{
     str::FromStr,
 };
 
-use calcs::OpenCrunchSample;
+use calcs::OpenCrunchCalcs;
 use distrs::OpenCrunchCDistr;
 use eframe::App;
 use egui::{Id, Rect, Sense, Ui};
@@ -17,8 +17,10 @@ fn main() {
     eframe::run_native(
         "OpenCrunch",
         native_options,
-        Box::new(|_| Box::new(OpenCrunch::default())),
-    );
+        Box::new(|c| {
+            Box::new(OpenCrunch::default())
+        }),
+    ).unwrap();
 }
 
 use meval::Expr;
@@ -71,12 +73,12 @@ enum Active {
 #[derive(Default)]
 struct OpenCrunch {
     cdistr: OpenCrunchCDistr,
-    sample: OpenCrunchSample,
+    calcs: OpenCrunchCalcs,
     active: Active,
 }
 
 impl App for OpenCrunch {
-    fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, f: &mut eframe::Frame) {
         egui::panel::TopBottomPanel::top("Tabs").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if ui.button("Distributions").clicked() {
@@ -93,11 +95,13 @@ impl App for OpenCrunch {
                 egui::panel::CentralPanel::default().show(ctx, |ui| {
                     ui.add(&mut self.cdistr);
                 });
+                f.set_window_title(&self.cdistr.to_string());
             }
             Active::Calcs => {
                 egui::panel::CentralPanel::default().show(ctx, |ui| {
-                    ui.add(&mut self.sample);
+                    ui.add(&mut self.calcs);
                 });
+                f.set_window_title(&self.calcs.to_string());
             }
             Active::None => {}
         }

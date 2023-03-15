@@ -179,7 +179,9 @@ impl Widget for &mut OpenCrunchCDistr {
             });
         });
 
-        for file in &ctx.input().raw.dropped_files {
+        for file in ctx.input(|i| {
+            i.raw.dropped_files.clone()
+        }) {
             let path = file.path.clone().unwrap();
             let len = File::open(path.clone()).unwrap().metadata().unwrap().len();
             let name = path.file_name().unwrap().to_str().unwrap();
@@ -210,6 +212,19 @@ impl Widget for &mut OpenCrunchCDistr {
                 });
             })
             .response
+    }
+}
+
+impl ToString for OpenCrunchCDistr {
+    fn to_string(&self) -> String {
+        match self.distr {
+            CDistr::None => "OpenCrunch - Distributions".to_owned(),
+            CDistr::Normal(_) => "OpenCrunch - Distributions - Normal".to_owned(),
+            CDistr::ChiSquare(_) => "OpenCrunch - Distributions - Chi Square".to_owned(),
+            CDistr::TDist(_) => "OpenCrunch - Distributions - T".to_owned(),
+            CDistr::FDist(_) => "OpenCrunch - Distributions - F".to_owned(),
+            CDistr::Exp(_) => "OpenCrunch - Distributions - Exponential".to_owned(),
+        }
     }
 }
 
