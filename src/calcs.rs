@@ -2,7 +2,7 @@ use egui::{Color32, RichText, Ui, Widget};
 use meval::Expr;
 use opencrunch_derive::{crunch_fill};
 use statrs::{
-    distribution::{ContinuousCDF, Normal, StudentsT},
+    distribution::{ContinuousCDF, Normal, StudentsT, ChiSquared},
     function,
 };
 
@@ -21,6 +21,7 @@ enum Calcs {
     TOneStats(TOneStats),
     ZTwoStats(ZTwoStats),
     TTwoStats(TTwoStats),
+    VarOneStats(VarOneStats),
 }
 
 #[derive(Default)]
@@ -46,6 +47,8 @@ impl Widget for &mut OpenCrunchCalcs {
             if ui.button("Chebyshev").clicked() {
                 self.sample = Calcs::Cheby(Cheby::default());
             }
+        });
+        ui.horizontal(|ui| {
             if ui.button("Z Stats").clicked() {
                 self.sample = Calcs::ZOneStats(ZOneStats::default());
             }
@@ -57,6 +60,9 @@ impl Widget for &mut OpenCrunchCalcs {
             }
             if ui.button("T Stats 2").clicked() {
                 self.sample = Calcs::TTwoStats(TTwoStats::default());
+            }
+            if ui.button("Var Stats").clicked() {
+                self.sample = Calcs::VarOneStats(VarOneStats::default());
             }
         });
 
@@ -71,6 +77,7 @@ impl Widget for &mut OpenCrunchCalcs {
             Calcs::TOneStats(t) => ui.add(t),
             Calcs::ZTwoStats(z) => ui.add(z),
             Calcs::TTwoStats(t) => ui.add(t),
+            Calcs::VarOneStats(v) => ui.add(v),
         }
     }
 }
@@ -88,6 +95,7 @@ impl ToString for OpenCrunchCalcs {
             Calcs::TOneStats(_) => "OpenCrunch - Calcs - T Stats".to_owned(),
             Calcs::ZTwoStats(_) => "OpenCrunch - Calcs - 2 Z Stats".to_owned(),
             Calcs::TTwoStats(_) => "OpenCrunch - Calcs - 2 T Stats".to_owned(),
+            Calcs::VarOneStats(_) => "OpenCrunch - Calcs - Var Stats".to_owned(),
         }
     }
 }
@@ -705,6 +713,75 @@ impl Widget for &mut TTwoStats {
         }
         ui.num_box("", &mut self.strings[7].clone());
         ui.label(&self.strings[8]);
+        resp
+    }
+}
+
+#[crunch_fill]
+#[derive(Clone)]
+pub(crate) struct VarOneStats {
+    sample_dev: Expr,
+    sample_size: usize,
+    confidence: f32,
+    intervalvar: Constr<f32>,
+    intervaldev: Constr<f32>,
+}
+
+impl Default for VarOneStats {
+    fn default() -> Self {
+        Self {
+            sample_dev: "1.0".parse().unwrap(), 
+            sample_size: 30, 
+            strings: [
+                "1.0".to_string(),
+                "30".to_string(),
+                "0.95".to_string(),
+                "[0.63, 1.81]".to_string(),
+                "[0.80, 1.34]".to_string(),
+                "".to_string(),
+            ],
+            confidence: 0.95,
+            intervalvar: Constr::In(0.63, 1.81), 
+            intervaldev: Constr::In(0.80, 1.34), }
+    }
+}
+
+
+impl Widget for &mut VarOneStats {
+    fn ui(self, ui: &mut Ui) -> egui::Response {
+        let mut resp = ui.num_box("sd", &mut self.strings[0]);
+        resp = resp.union(ui.num_box("sample size", &mut self.strings[1]));
+        resp = resp.union(ui.num_box("confidence", &mut self.strings[2]));
+        if resp.changed() {
+            self.vfill();
+            let mut f = || {
+            let Ok(dev) = self.sample_dev.eval() else {
+                self.strings[4] = "Standard deviation is invalid".to_owned();
+                return;
+            };
+            let dev = dev as f32;
+
+            let free = (self.sample_size-1) as f32;
+            let Ok(n) = ChiSquared::new(free as f64) else {
+                self.strings[4] = "Not a valid normal distr".to_string();
+                return;
+            };
+
+            let int_l = n.inverse_cdf((1.0-self.confidence as f64)/2.0) as f32;
+            let int_h = n.inverse_cdf((1.0+self.confidence as f64)/2.0) as f32;
+
+            self.intervalvar = Constr::In(free*dev*dev/int_h, free*dev*dev/int_l);
+            self.intervaldev = Constr::In((free*dev*dev/int_h).sqrt(), (free*dev*dev/int_l).sqrt());
+
+            self.strings[3] = self.intervalvar.to_string();
+            self.strings[4] = self.intervaldev.to_string();
+            self.strings[5].clear();
+            };
+            f();
+        }
+        ui.num_box("Var", &mut self.strings[3].clone());
+        ui.num_box("SD ", &mut self.strings[4].clone());
+        ui.label(&self.strings[5]);
         resp
     }
 }
