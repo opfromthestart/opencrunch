@@ -785,7 +785,7 @@ impl Widget for &mut ZTwoStats {
                         }
                     }
                     _ => {
-                        self.strings[7] = "Not valid hypothesis".to_owned();
+                        self.strings[10] = "Not valid hypothesis".to_owned();
                         return;
                     }
                 } as f32;
@@ -942,7 +942,7 @@ impl Widget for &mut TTwoStats {
                         }
                     }
                     _ => {
-                        self.strings[7] = "Not valid hypothesis".to_owned();
+                        self.strings[10] = "Not valid hypothesis".to_owned();
                         return;
                     }
                 } as f32;
