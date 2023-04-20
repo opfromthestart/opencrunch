@@ -410,6 +410,8 @@ pub(crate) struct ZOneStats {
     sample_size: usize,
     confidence: f32,
     interval: Constr<f32>,
+    hypothesis: Constr<f32>,
+    pval: f32,
 }
 
 impl Default for ZOneStats {
@@ -423,10 +425,14 @@ impl Default for ZOneStats {
                 "30".to_string(),
                 "0.95".to_string(),
                 "[-1.96, 1.96]".to_string(),
+                "!=0.0".to_string(),
+                "0.05".to_string(),
                 "".to_string(),
             ],
             confidence: 0.95,
-            interval: Constr::In(-1.96, 1.96), }
+            interval: Constr::In(-1.96, 1.96),
+            hypothesis: Constr::LENone,
+            pval: 0.05, }
     }
 }
 
@@ -441,18 +447,18 @@ impl Widget for &mut ZOneStats {
             self.vfill();
             let mut f = || {
             let Ok(mean) = self.sample_mean.eval() else {
-                self.strings[5] = "Mean is invalid".to_owned();
+                self.strings[7] = "Mean is invalid".to_owned();
                 return;
             };
             let Ok(dev) = self.sample_dev.eval() else {
-                self.strings[5] = "Standard deviation is invalid".to_owned();
+                self.strings[7] = "Standard deviation is invalid".to_owned();
                 return;
             };
 
             let std_err = dev / (self.sample_size as f64).sqrt();
 
             let Ok(n) = Normal::new(mean, std_err) else {
-                self.strings[5] = "Not a valid normal distr".to_string();
+                self.strings[7] = "Not a valid normal distr".to_string();
                 return;
             };
 
@@ -462,12 +468,60 @@ impl Widget for &mut ZOneStats {
             self.interval = Constr::In(int_l as f32, int_h as f32);
 
             self.strings[4] = self.interval.to_string();
-            self.strings[5].clear();
+            self.strings[7].clear();
             };
             f();
         }
         ui.num_box("", &mut self.strings[4].clone());
-        ui.label(&self.strings[5]);
+        ui.label("Hypothesis with 0");
+        resp = resp.union(ui.num_box("H1", &mut self.strings[5]));
+        if resp.changed() {
+            self.vfill();
+            let mut f = || {
+            let Ok(mean) = self.sample_mean.eval() else {
+                self.strings[7] = "Mean is invalid".to_owned();
+                return;
+            };
+            let Ok(dev) = self.sample_dev.eval() else {
+                self.strings[7] = "Standard deviation is invalid".to_owned();
+                return;
+            };
+
+            let std_err = dev / (self.sample_size as f64).sqrt();
+
+            let Ok(n) = Normal::new(mean, std_err) else {
+                self.strings[7] = "Not a valid normal distr".to_string();
+                return;
+            };
+
+            self.pval = match self.hypothesis {
+                Constr::GE(v) | Constr::GT(v) => {
+                    n.cdf(v as f64)
+                },
+                Constr::LE(v) | Constr::LT(v) => {
+                    1. - n.cdf(v as f64)
+                },
+                Constr::NE(v) => {
+                    if mean > v as f64 {
+                        2.0 * n.cdf(v as f64)
+                    }
+                    else {
+                        2.0 - 2.0 * n.cdf(v as f64)
+                    }
+                }
+                _ => {
+                    self.strings[7] = "Not valid hypothesis".to_owned();
+                    return;
+                }
+            } as f32;
+
+            self.strings[6] = self.pval.to_string();
+            self.strings[7].clear();
+            };
+            f();
+        }
+        ui.num_box("", &mut self.strings[6].clone());
+        ui.label(&self.strings[7]);
         resp
     }
 }
@@ -480,6 +534,8 @@ pub(crate) struct TOneStats {
     sample_size: usize,
     confidence: f32,
     interval: Constr<f32>,
+    hypothesis: Constr<f32>,
+    pval: f32,
 }
 
 impl Default for TOneStats {
@@ -493,10 +549,14 @@ impl Default for TOneStats {
                 "30".to_string(),
                 "0.95".to_string(),
                 "[-1.96, 1.96]".to_string(),
+                "!=0.0".to_string(),
+                "0.05".to_string(),
                 "".to_string(),
             ],
             confidence: 0.95,
-            interval: Constr::In(-1.96, 1.96), }
+            interval: Constr::In(-1.96, 1.96),
+            hypothesis: Constr::NENone,
+            pval: 0.05, }
     }
 }
 
@@ -511,18 +571,18 @@ impl Widget for &mut TOneStats {
             self.vfill();
             let mut f = || {
                 let Ok(mean) = self.sample_mean.eval() else {
-                    self.strings[5] = "Mean is invalid".to_owned();
+                    self.strings[7] = "Mean is invalid".to_owned();
                     return;
                 };
                 let Ok(dev) = self.sample_dev.eval() else {
-                    self.strings[5] = "Standard deviation is invalid".to_owned();
+                    self.strings[7] = "Standard deviation is invalid".to_owned();
                     return;
                 };
     
                 let std_err = dev / (self.sample_size as f64).sqrt();
     
                 let Ok(n) = StudentsT::new(mean, std_err, self.sample_size as f64 - 1.0) else {
-                    self.strings[5] = "Not a valid T distr".to_string();
+                    self.strings[7] = "Not a valid T distr".to_string();
                     return;
                 };
     
@@ -532,12 +592,60 @@ impl Widget for &mut TOneStats {
                 self.interval = Constr::In(int_l as f32, int_h as f32);
     
                 self.strings[4] = self.interval.to_string();
-                self.strings[5].clear();
+                self.strings[7].clear();
             };
             f();
         }
         ui.num_box("", &mut self.strings[4].clone());
-        ui.label(&self.strings[5]);
+        ui.label("Hypothesis");
+        resp = resp.union(ui.num_box("H1", &mut self.strings[5]));
+        if resp.changed() {
+            self.vfill();
+            let mut f = || {
+                let Ok(mean) = self.sample_mean.eval() else {
+                    self.strings[7] = "Mean is invalid".to_owned();
+                    return;
+                };
+                let Ok(dev) = self.sample_dev.eval() else {
+                    self.strings[7] = "Standard deviation is invalid".to_owned();
+                    return;
+                };
+    
+                let std_err = dev / (self.sample_size as f64).sqrt();
+    
+                let Ok(n) = StudentsT::new(mean, std_err, self.sample_size as f64 - 1.0) else {
+                    self.strings[7] = "Not a valid T distr".to_string();
+                    return;
+                };
+    
+                self.pval = match self.hypothesis {
+                    Constr::GE(v) | Constr::GT(v) => {
+                        n.cdf(v as f64)
+                    },
+                    Constr::LE(v) | Constr::LT(v) => {
+                        1. - n.cdf(v as f64)
+                    },
+                    Constr::NE(v) => {
+                        if mean > v as f64 {
+                            2.0 * n.cdf(v as f64)
+                        }
+                        else {
+                            2.0 - 2.0 * n.cdf(v as f64)
+                        }
+                    }
+                    _ => {
+                        self.strings[7] = "Not valid hypothesis".to_owned();
+                        return;
+                    }
+                } as f32;
+    
+                self.strings[6] = self.pval.to_string();
+                self.strings[7].clear();
+            };
+            f();
+        }
+        ui.num_box("", &mut self.strings[6].clone());
+        ui.label(&self.strings[7]);
         resp
     }
 }
@@ -553,6 +661,8 @@ pub(crate) struct ZTwoStats {
     sample_size_2: usize,
     confidence: f32,
     interval: Constr<f32>,
+    hypothesis: Constr<f32>,
+    pval: f32,
 }
 
 impl Default for ZTwoStats {
@@ -574,8 +684,12 @@ impl Default for ZTwoStats {
                 "30".to_string(),
                 "0.95".to_string(),
                 "".to_string(),
+                "!=0.0".to_string(),
+                "0.05".to_string(),
                 "".to_string(),
-            ] }
+            ],
+            hypothesis: Constr::NE(0.0),
+            pval: 0.05, }
     }
 }
 
@@ -592,26 +706,26 @@ impl Widget for &mut ZTwoStats {
             self.vfill();
             let mut f = || {
                 let Ok(mean1) = self.sample_mean_1.eval() else {
-                    self.strings[8] = "Mean 1 is invalid".to_owned();
+                    self.strings[10] = "Mean 1 is invalid".to_owned();
                     return;
                 };
                 let Ok(dev1) = self.sample_dev_1.eval() else {
-                    self.strings[8] = "Standard deviation 1 is invalid".to_owned();
+                    self.strings[10] = "Standard deviation 1 is invalid".to_owned();
                     return;
                 };
                 let Ok(mean2) = self.sample_mean_2.eval() else {
-                    self.strings[8] = "Mean 1 is invalid".to_owned();
+                    self.strings[10] = "Mean 1 is invalid".to_owned();
                     return;
                 };
                 let Ok(dev2) = self.sample_dev_2.eval() else {
-                    self.strings[8] = "Standard deviation 1 is invalid".to_owned();
+                    self.strings[10] = "Standard deviation 1 is invalid".to_owned();
                     return;
                 };
     
                 let std_err = (dev1*dev1 / self.sample_size_1 as f64 + dev2*dev2 / self.sample_size_2 as f64).sqrt();
     
                 let Ok(n) = Normal::new(mean1 - mean2, std_err) else {
-                    self.strings[8] = "Not a valid Normal distr".to_string();
+                    self.strings[10] = "Not a valid Normal distr".to_string();
                     return;
                 };
     
@@ -621,12 +735,68 @@ impl Widget for &mut ZTwoStats {
                 self.interval = Constr::In(int_l as f32, int_h as f32);
     
                 self.strings[7] = self.interval.to_string();
-                self.strings[8].clear();
+                self.strings[10].clear();
             };
             f();
         }
         ui.num_box("", &mut self.strings[7].clone());
-        ui.label(&self.strings[8]);
+        ui.label("Hypothesis");
+        resp = resp.union(ui.num_box("H1", &mut self.strings[8]));
+        if resp.changed() {
+            self.vfill();
+            let mut f = || {
+                let Ok(mean1) = self.sample_mean_1.eval() else {
+                    self.strings[10] = "Mean 1 is invalid".to_owned();
+                    return;
+                };
+                let Ok(dev1) = self.sample_dev_1.eval() else {
+                    self.strings[10] = "Standard deviation 1 is invalid".to_owned();
+                    return;
+                };
+                let Ok(mean2) = self.sample_mean_2.eval() else {
+                    self.strings[10] = "Mean 1 is invalid".to_owned();
+                    return;
+                };
+                let Ok(dev2) = self.sample_dev_2.eval() else {
+                    self.strings[10] = "Standard deviation 1 is invalid".to_owned();
+                    return;
+                };
+    
+                let std_err = (dev1*dev1 / self.sample_size_1 as f64 + dev2*dev2 / self.sample_size_2 as f64).sqrt();
+    
+                let Ok(n) = Normal::new(mean1 - mean2, std_err) else {
+                    self.strings[10] = "Not a valid Normal distr".to_string();
+                    return;
+                };
+    
+                self.pval = match self.hypothesis {
+                    Constr::GE(v) | Constr::GT(v) => {
+                        n.cdf(v as f64)
+                    },
+                    Constr::LE(v) | Constr::LT(v) => {
+                        1. - n.cdf(v as f64)
+                    },
+                    Constr::NE(v) => {
+                        if mean1-mean2 > v as f64 {
+                            2.0 * n.cdf(v as f64)
+                        }
+                        else {
+                            2.0 - 2.0 * n.cdf(v as f64)
+                        }
+                    }
+                    _ => {
+                        self.strings[7] = "Not valid hypothesis".to_owned();
+                        return;
+                    }
+                } as f32;
+    
+                self.strings[9] = self.pval.to_string();
+                self.strings[10].clear();
+            };
+            f();
+        }
+        ui.num_box("", &mut self.strings[9].clone());
+        ui.label(&self.strings[10]);
         resp
     }
 }
@@ -642,6 +812,8 @@ pub(crate) struct TTwoStats {
     sample_size_2: usize,
     confidence: f32,
     interval: Constr<f32>,
+    hypothesis: Constr<f32>,
+    pval: f32,
 }
 
 impl Default for TTwoStats {
@@ -663,8 +835,12 @@ impl Default for TTwoStats {
                 "30".to_string(),
                 "0.95".to_string(),
                 "".to_string(),
+                "!=0.0".to_string(),
+                "0.05".to_string(),
                 "".to_string(),
-            ] }
+            ],
+            hypothesis: Constr::NE(0.0),
+            pval: 0.05, }
     }
 }
 
@@ -681,19 +857,19 @@ impl Widget for &mut TTwoStats {
             self.vfill();
             let mut f = || {
                 let Ok(mean1) = self.sample_mean_1.eval() else {
-                    self.strings[8] = "Mean 1 is invalid".to_owned();
+                    self.strings[10] = "Mean 1 is invalid".to_owned();
                     return;
                 };
                 let Ok(dev1) = self.sample_dev_1.eval() else {
-                    self.strings[8] = "Standard deviation 1 is invalid".to_owned();
+                    self.strings[10] = "Standard deviation 1 is invalid".to_owned();
                     return;
                 };
                 let Ok(mean2) = self.sample_mean_2.eval() else {
-                    self.strings[8] = "Mean 1 is invalid".to_owned();
+                    self.strings[10] = "Mean 1 is invalid".to_owned();
                     return;
                 };
                 let Ok(dev2) = self.sample_dev_2.eval() else {
-                    self.strings[8] = "Standard deviation 1 is invalid".to_owned();
+                    self.strings[10] = "Standard deviation 1 is invalid".to_owned();
                     return;
                 };
     
@@ -703,7 +879,7 @@ impl Widget for &mut TTwoStats {
                 let df = (a+b)*(a+b)/(a*a/(self.sample_size_1 as f64 - 1.0) + b*b/(self.sample_size_2 as f64 - 1.0));
     
                 let Ok(n) = StudentsT::new(mean1 - mean2, std_err, df) else {
-                    self.strings[8] = "Not a valid T distr".to_string();
+                    self.strings[10] = "Not a valid T distr".to_string();
                     return;
                 };
     
@@ -713,12 +889,71 @@ impl Widget for &mut TTwoStats {
                 self.interval = Constr::In(int_l as f32, int_h as f32);
     
                 self.strings[7] = self.interval.to_string();
-                self.strings[8].clear();
+                self.strings[10].clear();
             };
             f();
         }
         ui.num_box("", &mut self.strings[7].clone());
-        ui.label(&self.strings[8]);
+        ui.label("Hypothesis");
+        resp = resp.union(ui.num_box("H1", &mut self.strings[8]));
+        if resp.changed() {
+            self.vfill();
+            let mut f = || {
+                let Ok(mean1) = self.sample_mean_1.eval() else {
+                    self.strings[10] = "Mean 1 is invalid".to_owned();
+                    return;
+                };
+                let Ok(dev1) = self.sample_dev_1.eval() else {
+                    self.strings[10] = "Standard deviation 1 is invalid".to_owned();
+                    return;
+                };
+                let Ok(mean2) = self.sample_mean_2.eval() else {
+                    self.strings[10] = "Mean 1 is invalid".to_owned();
+                    return;
+                };
+                let Ok(dev2) = self.sample_dev_2.eval() else {
+                    self.strings[10] = "Standard deviation 1 is invalid".to_owned();
+                    return;
+                };
+    
+                let std_err = (dev1*dev1 / self.sample_size_1 as f64 + dev2*dev2 / self.sample_size_2 as f64).sqrt();
+                let a = dev1*dev1/self.sample_size_1 as f64;
+                let b = dev2*dev2/self.sample_size_2 as f64;
+                let df = (a+b)*(a+b)/(a*a/(self.sample_size_1 as f64 - 1.0) + b*b/(self.sample_size_2 as f64 - 1.0));
+    
+                let Ok(n) = StudentsT::new(mean1 - mean2, std_err, df) else {
+                    self.strings[10] = "Not a valid Normal distr".to_string();
+                    return;
+                };
+    
+                self.pval = match self.hypothesis {
+                    Constr::GE(v) | Constr::GT(v) => {
+                        n.cdf(v as f64)
+                    },
+                    Constr::LE(v) | Constr::LT(v) => {
+                        1. - n.cdf(v as f64)
+                    },
+                    Constr::NE(v) => {
+                        if mean1-mean2 > v as f64 {
+                            2.0 * n.cdf(v as f64)
+                        }
+                        else {
+                            2.0 - 2.0 * n.cdf(v as f64)
+                        }
+                    }
+                    _ => {
+                        self.strings[7] = "Not valid hypothesis".to_owned();
+                        return;
+                    }
+                } as f32;
+    
+                self.strings[9] = self.pval.to_string();
+                self.strings[10].clear();
+            };
+            f();
+        }
+        ui.num_box("", &mut self.strings[9].clone());
+        ui.label(&self.strings[10]);
         resp
     }
 }

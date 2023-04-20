@@ -157,6 +157,8 @@ pub(crate) enum Constr<T> {
     LTNone,
     EQ(T),
     NE(T),
+    EQNone,
+    NENone,
     In(T, T),
     Out(T, T),
     None,
@@ -176,6 +178,12 @@ impl<T: std::str::FromStr + Debug> FromStr for Constr<T> {
             Ok(Self::LTNone)
         } else if s == "<=" {
             Ok(Self::LENone)
+        } else if s == "!=" {
+            Ok(Self::NENone)
+        } else if s == "=" {
+            Ok(Self::EQNone)
+        } else if s == "=" {
+            Ok(Self::EQNone)
         } else if l >= 2 && &s[..2] == ">=" {
             match s[2..].parse() {
                 Ok(n) => Ok(Self::GE(n)),
@@ -269,6 +277,8 @@ impl<T: Display> ToString for Constr<T> {
             Constr::GTNone => ">".to_string(),
             Constr::LENone => "<=".to_string(),
             Constr::LTNone => "<".to_string(),
+            Constr::EQNone => "=".to_string(),
+            Constr::NENone => "!=".to_string(),
         }
     }
 }
@@ -289,6 +299,8 @@ impl<T: PartialOrd + PartialEq> Constr<T> {
             Constr::GTNone => false,
             Constr::LENone => false,
             Constr::LTNone => false,
+            Constr::EQNone => false,
+            Constr::NENone => false,
         }
     }
 }
@@ -315,7 +327,7 @@ impl<T> Constr<T> {
     }
 
     fn is_eq(&self) -> bool {
-        matches!(self, Constr::EQ(_) | Constr::NE(_))
+        matches!(self, Constr::EQ(_) | Constr::NE(_) | Constr::EQNone | Constr::NENone)
     }
 
     fn is_range(&self) -> bool {
@@ -325,7 +337,7 @@ impl<T> Constr<T> {
     fn is_some(&self) -> bool {
         !matches!(
             self,
-            Constr::None | Constr::GENone | Constr::GTNone | Constr::LENone | Constr::LTNone
+            Constr::None | Constr::GENone | Constr::GTNone | Constr::LENone | Constr::LTNone | Constr::EQNone | Constr::NENone
         )
     }
 }
@@ -346,6 +358,8 @@ impl Constr<Expr> {
             Constr::In(a, b) => Ok(Constr::In(a.eval()?, b.eval()?)),
             Constr::Out(a, b) => Ok(Constr::Out(a.eval()?, b.eval()?)),
             Constr::None => Ok(Constr::None),
+            Constr::EQNone => Ok(Constr::EQNone),
+            Constr::NENone => Ok(Constr::NENone),
         }
     }
 }
