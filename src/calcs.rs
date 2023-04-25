@@ -1055,10 +1055,10 @@ impl Widget for &mut VarOneStats {
 
             self.pval = match self.hypothesis {
                 Constr::GE(v) | Constr::GT(v) => {
-                    n.cdf((err/v/v) as f64)
+                    1. - n.cdf((err/v/v) as f64)
                 },
                 Constr::LE(v) | Constr::LT(v) => {
-                    1. - n.cdf((err/v/v) as f64)
+                    n.cdf((err/v/v) as f64)
                 },
                 Constr::NE(v) => {
                     if dev < v as f64 {
@@ -1197,10 +1197,10 @@ impl Widget for &mut VarTwoStats {
 
             self.pval = match self.hypothesis {
                 Constr::GE(v) | Constr::GT(v) => {
-                    n.cdf(err/(v*v) as f64)
+                    1. - n.cdf(err/(v*v) as f64)
                 },
                 Constr::LE(v) | Constr::LT(v) => {
-                    1. - n.cdf(err/(v*v) as f64)
+                    n.cdf(err/(v*v) as f64)
                 },
                 Constr::NE(v) => {
                     if dev1/dev2 < v as f64 {
