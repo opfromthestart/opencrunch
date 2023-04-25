@@ -426,7 +426,7 @@ impl Default for ZOneStats {
                 "0.95".to_string(),
                 "[-1.96, 1.96]".to_string(),
                 "!=0.0".to_string(),
-                "0.05".to_string(),
+                "".to_string(),
                 "".to_string(),
             ],
             confidence: 0.95,
@@ -473,7 +473,7 @@ impl Widget for &mut ZOneStats {
             f();
         }
         ui.num_box("", &mut self.strings[4].clone());
-        ui.label("Hypothesis with 0");
+        ui.label("Hypothesis");
         resp = resp.union(ui.num_box("H1", &mut self.strings[5]));
         if resp.changed() {
             self.vfill();
@@ -550,7 +550,7 @@ impl Default for TOneStats {
                 "0.95".to_string(),
                 "[-1.96, 1.96]".to_string(),
                 "!=0.0".to_string(),
-                "0.05".to_string(),
+                "".to_string(),
                 "".to_string(),
             ],
             confidence: 0.95,
@@ -685,7 +685,7 @@ impl Default for ZTwoStats {
                 "0.95".to_string(),
                 "".to_string(),
                 "!=0.0".to_string(),
-                "0.05".to_string(),
+                "".to_string(),
                 "".to_string(),
             ],
             hypothesis: Constr::NE(0.0),
@@ -836,7 +836,7 @@ impl Default for TTwoStats {
                 "0.95".to_string(),
                 "".to_string(),
                 "!=0.0".to_string(),
-                "0.05".to_string(),
+                "".to_string(),
                 "".to_string(),
             ],
             hypothesis: Constr::NE(0.0),
@@ -966,6 +966,8 @@ pub(crate) struct VarOneStats {
     confidence: f32,
     intervalvar: Constr<f32>,
     intervaldev: Constr<f32>,
+    hypothesis: Constr<f32>,
+    pval: f32,
 }
 
 impl Default for VarOneStats {
@@ -979,11 +981,15 @@ impl Default for VarOneStats {
                 "0.95".to_string(),
                 "[0.63, 1.81]".to_string(),
                 "[0.80, 1.34]".to_string(),
+                "!=1".to_string(),
+                "".to_string(),
                 "".to_string(),
             ],
             confidence: 0.95,
             intervalvar: Constr::In(0.63, 1.81), 
-            intervaldev: Constr::In(0.80, 1.34), }
+            intervaldev: Constr::In(0.80, 1.34),
+            hypothesis: Constr::NE(1.0),
+            pval: 0.05, }
     }
 }
 
@@ -997,14 +1003,14 @@ impl Widget for &mut VarOneStats {
             self.vfill();
             let mut f = || {
             let Ok(dev) = self.sample_dev.eval() else {
-                self.strings[4] = "Standard deviation is invalid".to_owned();
+                self.strings[7] = "Standard deviation is invalid".to_owned();
                 return;
             };
             let dev = dev as f32;
 
             let free = (self.sample_size-1) as f32;
             let Ok(n) = ChiSquared::new(free as f64) else {
-                self.strings[4] = "Not a valid Chi Squared distr".to_string();
+                self.strings[7] = "Not a valid Chi Squared distr".to_string();
                 return;
             };
 
@@ -1017,13 +1023,58 @@ impl Widget for &mut VarOneStats {
 
             self.strings[3] = self.intervalvar.to_string();
             self.strings[4] = self.intervaldev.to_string();
-            self.strings[5].clear();
+            self.strings[7].clear();
             };
             f();
         }
         ui.num_box("Var", &mut self.strings[3].clone());
         ui.num_box("SD ", &mut self.strings[4].clone());
-        ui.label(&self.strings[5]);
+        ui.label("Hypothesis");
+        resp = resp.union(ui.num_box("H1", &mut self.strings[5]));
+        if resp.changed() {
+            self.vfill();
+            let mut f = || {
+                let Ok(dev) = self.sample_dev.eval() else {
+                    self.strings[7] = "Standard deviation is invalid".to_owned();
+                    return;
+                };
+    
+                let free = (self.sample_size-1) as f32;
+                let Ok(n) = ChiSquared::new(free as f64) else {
+                    self.strings[7] = "Not a valid Chi Squared distr".to_string();
+                    return;
+                };
+
+                let err = free*(dev*dev) as f32;
+
+            self.pval = match self.hypothesis {
+                Constr::GE(v) | Constr::GT(v) => {
+                    n.cdf((err/v) as f64)
+                },
+                Constr::LE(v) | Constr::LT(v) => {
+                    1. - n.cdf((err/v) as f64)
+                },
+                Constr::NE(v) => {
+                    if dev < v as f64 {
+                        2.0 * n.cdf((err/v) as f64)
+                    }
+                    else {
+                        2.0 - 2.0 * n.cdf((err/v) as f64)
+                    }
+                }
+                _ => {
+                    self.strings[7] = "Not valid hypothesis".to_owned();
+                    return;
+                }
+            } as f32;
+
+            self.strings[6] = self.pval.to_string();
+            self.strings[7].clear();
+            };
+            f();
+        }
+        ui.num_box("", &mut self.strings[6].clone());
+        ui.label(&self.strings[7]);
         resp
     }
 }
@@ -1038,6 +1089,8 @@ pub(crate) struct VarTwoStats {
     confidence: f32,
     intervalvar: Constr<f32>,
     intervaldev: Constr<f32>,
+    hypothesis: Constr<f32>,
+    pval: f32,
 }
 
 impl Default for VarTwoStats {
@@ -1055,11 +1108,15 @@ impl Default for VarTwoStats {
                 "0.95".to_string(),
                 "[0.33, 1.46]".to_string(),
                 "[0.57, 1.21]".to_string(),
+                "!=1".to_string(),
+                "".to_string(),
                 "".to_string(),
             ],
             confidence: 0.95,
             intervalvar: Constr::In(0.63, 1.81), 
-            intervaldev: Constr::In(0.80, 1.34), }
+            intervaldev: Constr::In(0.80, 1.34),
+            hypothesis: Constr::NE(1.0),
+            pval: 0.05, }
     }
 }
 
@@ -1075,13 +1132,13 @@ impl Widget for &mut VarTwoStats {
             self.vfill();
             let mut f = || {
             let Ok(dev1) = self.sample_dev_1.eval() else {
-                self.strings[7] = "Standard deviation 1 is invalid".to_owned();
+                self.strings[9] = "Standard deviation 1 is invalid".to_owned();
                 return;
             };
             let dev1 = dev1 as f32;
 
             let Ok(dev2) = self.sample_dev_2.eval() else {
-                self.strings[7] = "Standard deviation 2 is invalid".to_owned();
+                self.strings[9] = "Standard deviation 2 is invalid".to_owned();
                 return;
             };
             let dev2 = dev2 as f32;
@@ -1089,7 +1146,7 @@ impl Widget for &mut VarTwoStats {
             let free1 = (self.sample_size_1-1) as f64;
             let free2 = (self.sample_size_2-1) as f64;
             let Ok(n) = FisherSnedecor::new(free1, free2) else {
-                self.strings[7] = "Not a valid F distr".to_string();
+                self.strings[9] = "Not a valid F distr".to_string();
                 return;
             };
 
@@ -1102,13 +1159,64 @@ impl Widget for &mut VarTwoStats {
 
             self.strings[5] = self.intervalvar.to_string();
             self.strings[6] = self.intervaldev.to_string();
-            self.strings[7].clear();
+            self.strings[9].clear();
             };
             f();
         }
         ui.num_box("Var", &mut self.strings[5].clone());
         ui.num_box("SD ", &mut self.strings[6].clone());
-        ui.label(&self.strings[7]);
+        ui.label("Hypothesis");
+        resp = resp.union(ui.num_box("H1", &mut self.strings[7]));
+        if resp.changed() {
+            self.vfill();
+            let mut f = || {
+            let Ok(dev1) = self.sample_dev_1.eval() else {
+                self.strings[9] = "Standard deviation 1 is invalid".to_owned();
+                return;
+            };
+
+            let Ok(dev2) = self.sample_dev_2.eval() else {
+                self.strings[9] = "Standard deviation 2 is invalid".to_owned();
+                return;
+            };
+
+            let free1 = (self.sample_size_1-1) as f64;
+            let free2 = (self.sample_size_2-1) as f64;
+            let Ok(n) = FisherSnedecor::new(free1, free2) else {
+                self.strings[9] = "Not a valid F distr".to_string();
+                return;
+            };
+
+            let err = dev1*dev1/dev2/dev2;
+
+            self.pval = match self.hypothesis {
+                Constr::GE(v) | Constr::GT(v) => {
+                    n.cdf(err/v as f64)
+                },
+                Constr::LE(v) | Constr::LT(v) => {
+                    1. - n.cdf(err/v as f64)
+                },
+                Constr::NE(v) => {
+                    if dev1/dev2 < v as f64 {
+                        2.0 * n.cdf(err/v as f64)
+                    }
+                    else {
+                        2.0 - 2.0 * n.cdf(err/v as f64)
+                    }
+                }
+                _ => {
+                    self.strings[9] = "Not valid hypothesis".to_owned();
+                    return;
+                }
+            } as f32;
+
+            self.strings[8] = self.pval.to_string();
+            self.strings[9].clear();
+            };
+            f();
+        }
+        ui.num_box("", &mut self.strings[8].clone());
+        ui.label(&self.strings[9]);
         resp
     }
 }
