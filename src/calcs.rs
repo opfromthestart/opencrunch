@@ -23,6 +23,7 @@ enum Calcs {
     TTwoStats(TTwoStats),
     VarOneStats(VarOneStats),
     VarTwoStats(VarTwoStats),
+    KStats(KStats),
 }
 
 #[derive(Default)]
@@ -68,6 +69,9 @@ impl Widget for &mut OpenCrunchCalcs {
             if ui.button("Var 2 Stats").clicked() {
                 self.sample = Calcs::VarTwoStats(VarTwoStats::default());
             }
+            if ui.button("K Stats").clicked() {
+                self.sample = Calcs::KStats(KStats::default());
+            }
         });
 
         match &mut self.sample {
@@ -83,6 +87,7 @@ impl Widget for &mut OpenCrunchCalcs {
             Calcs::TTwoStats(t) => ui.add(t),
             Calcs::VarOneStats(v) => ui.add(v),
             Calcs::VarTwoStats(v) => ui.add(v),
+            Calcs::KStats(k) => ui.add(k),
         }
     }
 }
@@ -102,6 +107,7 @@ impl ToString for OpenCrunchCalcs {
             Calcs::TTwoStats(_) => "OpenCrunch - Calcs - 2 T Stats".to_owned(),
             Calcs::VarOneStats(_) => "OpenCrunch - Calcs - Var Stats".to_owned(),
             Calcs::VarTwoStats(_) => "OpenCrunch - Calcs - 2 Var Stats".to_owned(),
+            Calcs::KStats(_) => "OpenCrunch - Calcs - K Stats".to_owned(),
         }
     }
 }
@@ -1030,7 +1036,7 @@ impl Widget for &mut VarOneStats {
         ui.num_box("Var", &mut self.strings[3].clone());
         ui.num_box("SD ", &mut self.strings[4].clone());
         ui.label("Hypothesis");
-        resp = resp.union(ui.num_box("H1", &mut self.strings[5]));
+        resp = resp.union(ui.num_box("H1: sd", &mut self.strings[5]));
         if resp.changed() {
             self.vfill();
             let mut f = || {
@@ -1049,17 +1055,17 @@ impl Widget for &mut VarOneStats {
 
             self.pval = match self.hypothesis {
                 Constr::GE(v) | Constr::GT(v) => {
-                    n.cdf((err/v) as f64)
+                    n.cdf((err/v/v) as f64)
                 },
                 Constr::LE(v) | Constr::LT(v) => {
-                    1. - n.cdf((err/v) as f64)
+                    1. - n.cdf((err/v/v) as f64)
                 },
                 Constr::NE(v) => {
                     if dev < v as f64 {
-                        2.0 * n.cdf((err/v) as f64)
+                        2.0 * n.cdf((err/v/v) as f64)
                     }
                     else {
-                        2.0 - 2.0 * n.cdf((err/v) as f64)
+                        2.0 - 2.0 * n.cdf((err/v/v) as f64)
                     }
                 }
                 _ => {
@@ -1166,7 +1172,7 @@ impl Widget for &mut VarTwoStats {
         ui.num_box("Var", &mut self.strings[5].clone());
         ui.num_box("SD ", &mut self.strings[6].clone());
         ui.label("Hypothesis");
-        resp = resp.union(ui.num_box("H1", &mut self.strings[7]));
+        resp = resp.union(ui.num_box("H1 sd1/sd2", &mut self.strings[7]));
         if resp.changed() {
             self.vfill();
             let mut f = || {
@@ -1191,17 +1197,17 @@ impl Widget for &mut VarTwoStats {
 
             self.pval = match self.hypothesis {
                 Constr::GE(v) | Constr::GT(v) => {
-                    n.cdf(err/v as f64)
+                    n.cdf(err/(v*v) as f64)
                 },
                 Constr::LE(v) | Constr::LT(v) => {
-                    1. - n.cdf(err/v as f64)
+                    1. - n.cdf(err/(v*v) as f64)
                 },
                 Constr::NE(v) => {
                     if dev1/dev2 < v as f64 {
-                        2.0 * n.cdf(err/v as f64)
+                        2.0 * n.cdf(err/(v*v) as f64)
                     }
                     else {
-                        2.0 - 2.0 * n.cdf(err/v as f64)
+                        2.0 - 2.0 * n.cdf(err/(v*v) as f64)
                     }
                 }
                 _ => {
@@ -1218,5 +1224,140 @@ impl Widget for &mut VarTwoStats {
         ui.num_box("", &mut self.strings[8].clone());
         ui.label(&self.strings[9]);
         resp
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct KStats {
+    sample_means: Vec<Expr>,
+    sample_devs: Vec<Expr>,
+    sample_sizes: Vec<usize>,
+    kstrings: Vec<(String, String, String)>,
+    pool_avg: f32,
+    hypothesis: Constr<f32>,
+    pval: f32,
+    strings: [String; 4],
+}
+
+impl Default for KStats {
+    fn default() -> Self {
+        Self {
+            sample_means: vec!["0.0".parse().unwrap()], 
+            sample_devs: vec!["1.0".parse().unwrap()], 
+            sample_sizes: vec![30], 
+            pool_avg: 0.0,
+            pval: 0.05,
+            kstrings: vec![("0.0".to_string(), "1.0".to_string(), "30".to_string())],
+            strings: ["0.0".to_string(), "!=".to_string(), "".to_string(), "".to_string()],
+            hypothesis: Constr::NENone, }
+    }
+}
+
+impl Widget for &mut KStats {
+    fn ui(self, ui: &mut Ui) -> egui::Response {
+        let rba = ui.button("Add sample");
+        if rba.clicked() {
+            self.sample_means.push("1.0".parse().unwrap());
+            self.sample_devs.push("0.0".parse().unwrap());
+            self.sample_sizes.push(30);
+            self.kstrings.push(("0.0".to_string(), "1.0".to_string(), "30".to_string()))
+        }
+        let rbr = ui.button("Remove sample");
+        if rbr.clicked() {
+            self.sample_means.pop();
+            self.sample_devs.pop();
+            self.sample_sizes.pop();
+            self.kstrings.pop();
+        }
+        let mut resp = rba.union(rbr);
+        for (m, d, c) in self.kstrings.iter_mut() {
+            resp = resp.union(ui.num_box("mean", m));
+            resp = resp.union(ui.num_box("sd", d));
+            resp = resp.union(ui.num_box("sample size", c));
+        }
+        ui.num_box("Pool", &mut self.strings[0].clone());
+        resp = resp.union(ui.num_box("Hypothesis", &mut self.strings[1]));
+        if resp.changed() {
+            self.vfill();
+            let mut f = || {
+                let means : Vec<_> = self.sample_means.iter().filter_map(|x| x.eval().ok()).collect();
+                if means.len() < self.sample_means.len() {
+                    self.strings[3] = "Mean is invalid".to_owned();
+                    return;
+                };
+
+            let devs : Vec<_> = self.sample_devs.iter().filter_map(|x| x.eval().ok()).collect();
+            if devs.len() < self.sample_devs.len() {
+                self.strings[3] = "Standard deviation is invalid".to_owned();
+                return;
+            };
+
+            let pooled = means.iter().zip(self.sample_sizes.iter()).map(|(m, s)| {m* *s as f64}).sum::<f64>()/(self.sample_sizes.iter().sum::<usize>() as f64);
+
+            self.strings[0] = pooled.to_string();
+
+            let free = match self.hypothesis {
+                Constr::NE(_) => self.sample_means.len(),
+                Constr::NENone => self.sample_means.len()-1,
+                _ => {
+                    self.strings[3] = "Not a valid hypothesis".to_string();
+                    return;
+                }
+            } as f64;
+            let Ok(n) = ChiSquared::new(free) else {
+                self.strings[3] = "Not a valid Chi squared distr".to_string();
+                return;
+            };
+
+            if !matches!(self.hypothesis, Constr::NE(_) | Constr::NENone) {
+                self.strings[2] = "Not a valid hypothesis".to_string();
+                return;
+            }
+
+            let crit = means.iter().zip(devs.iter()).zip(self.sample_sizes.iter()).map(|((m,d),s)| {
+                match self.hypothesis {
+                    Constr::NE(v) => (*m-v as f64).powi(2)/(d*d/(*s as f64)),
+                    Constr::NENone => (m-pooled).powi(2)/(d*d/(*s as f64)),
+                    _ => {
+                        unreachable!("Not a valid hypothesis");
+                    }
+                }
+            }).map(|x| {
+                println!("{x}");
+                x
+            }).sum();
+
+            self.pval = 1.0 - n.cdf(crit) as f32;
+
+            self.strings[2] = self.pval.to_string();
+            self.strings[3].clear();
+            };
+            f();
+        }
+        ui.num_box("", &mut self.strings[2].clone());
+        ui.label(&self.strings[3]);
+        resp
+    }
+}
+
+impl KStats {
+    fn vfill(&mut self) {
+        if let Ok(val) = self.strings[1].parse() {
+            self.hypothesis = val;
+        }
+        for (((m, d), s), st) in self.sample_means.iter_mut()
+        .zip(self.sample_devs.iter_mut())
+        .zip(self.sample_sizes.iter_mut())
+        .zip(self.kstrings.iter()) {
+            if let Ok(val) = st.0.parse() {
+                *m = val;
+            }
+            if let Ok(val) = st.1.parse() {
+                *d = val;
+            }
+            if let Ok(val) = st.2.parse() {
+                *s = val;
+            }
+        }
     }
 }
