@@ -1,4 +1,4 @@
-use egui::{Color32, RichText, Ui, Widget};
+use egui::{Color32, RichText, Ui, Widget, Response};
 use meval::Expr;
 use opencrunch_derive::{crunch_fill};
 use statrs::{
@@ -24,6 +24,7 @@ enum Calcs {
     VarOneStats(VarOneStats),
     VarTwoStats(VarTwoStats),
     KStats(KStats),
+    SampleStat(SampleStat),
 }
 
 #[derive(Default)]
@@ -48,6 +49,9 @@ impl Widget for &mut OpenCrunchCalcs {
             }
             if ui.button("Chebyshev").clicked() {
                 self.sample = Calcs::Cheby(Cheby::default());
+            }
+            if ui.button("Sample Stats").clicked() {
+                self.sample = Calcs::SampleStat(SampleStat::default());
             }
         });
         ui.horizontal(|ui| {
@@ -88,6 +92,7 @@ impl Widget for &mut OpenCrunchCalcs {
             Calcs::VarOneStats(v) => ui.add(v),
             Calcs::VarTwoStats(v) => ui.add(v),
             Calcs::KStats(k) => ui.add(k),
+            Calcs::SampleStat(s) => ui.add(s),
         }
     }
 }
@@ -108,6 +113,7 @@ impl ToString for OpenCrunchCalcs {
             Calcs::VarOneStats(_) => "OpenCrunch - Calcs - Var Stats".to_owned(),
             Calcs::VarTwoStats(_) => "OpenCrunch - Calcs - 2 Var Stats".to_owned(),
             Calcs::KStats(_) => "OpenCrunch - Calcs - K Stats".to_owned(),
+            Calcs::SampleStat(_) => "OpenCrunch - Calcs - Sample Stats".to_owned(),
         }
     }
 }
@@ -1322,9 +1328,6 @@ impl Widget for &mut KStats {
                         unreachable!("Not a valid hypothesis");
                     }
                 }
-            }).map(|x| {
-                println!("{x}");
-                x
             }).sum();
 
             self.pval = 1.0 - n.cdf(crit) as f32;
@@ -1357,6 +1360,88 @@ impl KStats {
             }
             if let Ok(val) = st.2.parse() {
                 *s = val;
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct SampleStat {
+    sample_vals: Vec<Option<f32>>,
+    kstrings: Vec<String>,
+    mean: f32,
+    var: f32,
+    sd: f32,
+    strings: [String; 4],
+}
+
+impl Default for SampleStat {
+    fn default() -> Self {
+        Self { sample_vals: vec![None], 
+        kstrings: vec!["".to_string()], 
+        mean: 0., 
+        var: 1., 
+        sd: 1., 
+        strings: ["".to_string(), "".to_string(), "".to_string(), "".to_string()] }
+    }
+}
+
+impl Widget for &mut SampleStat {
+    fn ui(self, ui: &mut Ui) -> egui::Response {
+        let mut resp = ui.label("Enter values");
+        for m in self.kstrings.iter_mut() {
+            resp = resp.union(ui.num_box("", m));
+        }
+        if self.kstrings.is_empty() || self.kstrings.last().unwrap() != "" {
+            self.sample_vals.push(None);
+            self.kstrings.push("".to_string());
+        }
+        else if self.kstrings.len() > 1 && self.kstrings[self.kstrings.len()-2] == "" {
+            self.sample_vals.pop();
+            self.kstrings.pop();
+        }
+        if resp.changed() {
+            self.vfill();
+            let mut f = || {
+                if self.sample_vals.len() < 2 {
+                    self.strings[3] = "Not enough values".to_string();
+                    return;
+                }
+
+                let len = self.sample_vals.iter().filter(|x| x.is_some()).count();
+                let mean = self.sample_vals.iter()
+                .fold(0., |x,y| {x+y.unwrap_or(0.)})/(len as f32);
+                let var = self.sample_vals.iter()
+                .fold(0., |x,y| {x+y.map(|y| (mean-y).powi(2) as f64).unwrap_or(0.)})/((len-1) as f64);
+
+                self.mean = mean as f32;
+                self.var = var as f32;
+                self.sd = var.sqrt() as f32;
+
+                self.strings[0] = self.mean.to_string();
+                self.strings[1] = self.var.to_string();
+                self.strings[2] = self.sd.to_string();
+                self.strings[3].clear();
+            };
+            f();
+        }
+        ui.num_box("Mean", &mut self.strings[0].clone());
+        ui.num_box("Var", &mut self.strings[1].clone());
+        ui.num_box("SD", &mut self.strings[2].clone());
+        ui.label(&self.strings[3]);
+        resp
+    }
+}
+
+impl SampleStat {
+    fn vfill(&mut self) {
+        for (v, s) in self.sample_vals.iter_mut()
+        .zip(self.kstrings.iter()) {
+            if let Ok(val) = s.parse::<Expr>() {
+                *v = val.eval().ok().map(|x| x as f32);
+            }
+            else {
+                *v = None;
             }
         }
     }
