@@ -1,4 +1,6 @@
-use egui::{Color32, RichText, Ui, Widget, Response};
+use std::rc::Rc;
+
+use egui::{Color32, RichText, Ui, Widget, Response, gui_zoom::zoom_with_keyboard_shortcuts};
 use meval::Expr;
 use opencrunch_derive::{crunch_fill};
 use statrs::{
@@ -6,7 +8,7 @@ use statrs::{
     function,
 };
 
-use crate::{empty_resp, Constr, NumBox};
+use crate::{empty_resp, Constr, NumBox, GridNumBox};
 
 #[derive(Default, Clone)]
 enum Calcs {
@@ -25,6 +27,7 @@ enum Calcs {
     VarTwoStats(VarTwoStats),
     KStats(KStats),
     SampleStat(SampleStat),
+    RCTable(RCTable),
 }
 
 #[derive(Default)]
@@ -76,6 +79,9 @@ impl Widget for &mut OpenCrunchCalcs {
             if ui.button("K Stats").clicked() {
                 self.sample = Calcs::KStats(KStats::default());
             }
+            if ui.button("RxC Table").clicked() {
+                self.sample = Calcs::RCTable(RCTable::default());
+            }
         });
 
         match &mut self.sample {
@@ -93,6 +99,7 @@ impl Widget for &mut OpenCrunchCalcs {
             Calcs::VarTwoStats(v) => ui.add(v),
             Calcs::KStats(k) => ui.add(k),
             Calcs::SampleStat(s) => ui.add(s),
+            Calcs::RCTable(r) => ui.add(r),
         }
     }
 }
@@ -113,6 +120,7 @@ impl ToString for OpenCrunchCalcs {
             Calcs::VarOneStats(_) => "OpenCrunch - Calcs - Var Stats".to_owned(),
             Calcs::VarTwoStats(_) => "OpenCrunch - Calcs - 2 Var Stats".to_owned(),
             Calcs::KStats(_) => "OpenCrunch - Calcs - K Stats".to_owned(),
+            Calcs::RCTable(_) => "OpenCrunch - Calcs - RxC Table".to_owned(),
             Calcs::SampleStat(_) => "OpenCrunch - Calcs - Sample Stats".to_owned(),
         }
     }
@@ -1377,8 +1385,8 @@ pub(crate) struct SampleStat {
 
 impl Default for SampleStat {
     fn default() -> Self {
-        Self { sample_vals: vec![None], 
-        kstrings: vec!["".to_string()], 
+        Self { sample_vals: vec![], 
+        kstrings: vec![], 
         mean: 0., 
         var: 1., 
         sd: 1., 
@@ -1442,6 +1450,203 @@ impl SampleStat {
             }
             else {
                 *v = None;
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct RCTable {
+    sample_vals: Vec<Vec<Option<f32>>>,
+    kstrings: Vec<Vec<String>>,
+    pval: f32,
+    strings: [String; 2],
+}
+
+impl Default for RCTable {
+    fn default() -> Self {
+        Self {
+            sample_vals: vec![],
+            kstrings: vec![],
+            pval: 0.,
+            strings: ["".to_string(), "".to_string()],
+        }
+    }
+}
+
+fn get_fill_shape<T>(g: &[Vec<Option<T>>]) -> (usize, usize) {
+    let (mut w, mut h) = (0,0);
+    for (i, r) in g.iter().enumerate() {
+        for (j, v) in r.iter().enumerate() {
+            if v.is_some() {
+                w = w.max(j+1);
+                h = h.max(i+1);
+            }
+        }
+    }
+    (w,h)
+}
+
+fn get_all_fill<T>(g: &[Vec<Option<T>>], fill: (usize, usize)) -> bool {
+    for (i, r) in g.iter().enumerate() {
+        if i>=fill.1 {
+            continue;
+        }
+        for (j, v) in r.iter().enumerate() {
+            if j>=fill.0 {
+                continue;
+            }
+            if v.is_none() {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn get_shape<T>(g: &[Vec<T>]) -> (usize, usize) {
+    (g.get(0).map(|x| x.len()).unwrap_or(0), g.len())
+}
+
+fn add_row<T: Default>(g: &mut Vec<Vec<T>>) {
+    if g.is_empty() {
+        g.push(vec![]);
+    }
+    else {
+        g.push((0..g[0].len()).map(|_| T::default()).collect());
+    }
+}
+
+fn add_col<T: Default>(g: &mut Vec<Vec<T>>) {
+    for r in g.iter_mut() {
+        r.push(T::default());
+    }
+}
+
+fn rem_row<T>(g: &mut Vec<Vec<T>>) {
+    g.pop();
+}
+
+fn rem_col<T>(g: &mut Vec<Vec<T>>) {
+    for r in g.iter_mut() {
+        r.pop();
+    }
+}
+
+impl Widget for &mut RCTable {
+    fn ui(self, ui: &mut Ui) -> egui::Response {
+        let mut resp = ui.label("Enter values, checks independence of rows");
+        let respm = resp.clone();
+        for mv in self.kstrings.iter_mut() {
+            resp = resp.union(ui.horizontal(|ui| {
+                let mut resp = respm.clone();
+                for m in mv.iter_mut() {
+                    resp = resp.union(ui.grid_num_box(40, m));
+                }
+                resp
+            }).inner);
+        }
+        if resp.changed() {
+            self.vfill();
+        }
+        let s = get_shape(&self.sample_vals);
+        let fs = get_fill_shape(&self.sample_vals);
+        // println!("{:?}, {:?}", s, fs);
+        if s.0 == fs.0 {
+            add_col(&mut self.kstrings);
+            add_col(&mut self.sample_vals);
+        }
+        if s.1 == fs.1 {
+            add_row(&mut self.kstrings);
+            add_row(&mut self.sample_vals);
+        }
+        if s.0 > fs.0+1 {
+            rem_col(&mut self.kstrings);
+            rem_col(&mut self.sample_vals);
+        }
+        if s.1 > fs.1+1 {
+            rem_row(&mut self.kstrings);
+            rem_row(&mut self.sample_vals);
+        }
+        if resp.changed() {
+            let mut f = || {
+
+                // println!("{:?} {:?}", fs, get_all_fill(&self.sample_vals));
+
+                if !get_all_fill(&self.sample_vals, fs) {
+                    self.strings[1] = "Not a filled table".to_string();
+                    return;
+                }
+
+            let mut pooled = self.sample_vals.iter().cloned().reduce(|x,y| {
+                x.into_iter().zip(y.into_iter()).map(|(x,y)| {
+                    let x = x.unwrap_or(0.);
+                    let y = y.unwrap_or(0.);
+                    Some(x+y)
+                }).collect::<Vec<_>>()
+            }).unwrap();
+
+            let pooled_row = self.sample_vals.iter().map(|x| 
+                x.iter().fold(Some(0.), |x,y| {
+                let x = x.unwrap_or(0.);
+                let y = y.unwrap_or(0.);
+                Some(x+y)
+                }
+            )).filter_map(|x| x).collect::<Vec<_>>();
+            
+            if pooled_row.is_empty() {
+                self.strings[1] = "Not large enough table".to_string();
+                return;
+            }
+            
+            let total = pooled_row.iter().cloned().reduce(|x,y| x+y).unwrap();
+
+            let pooled_p = pooled.into_iter().map(|x| x.unwrap()/total).collect::<Vec<_>>();
+            let pooled_row_p = pooled_row.into_iter().map(|x| x/total).collect::<Vec<_>>();
+
+            let exp = (0..fs.1)
+            .map(|i| (0..fs.0).map(|j| total*pooled_p[j]*pooled_row_p[i]).collect::<Vec<_>>()).collect::<Vec<_>>();
+
+            if fs.0 < 1 || fs.1 < 1 {
+                self.strings[1] = "Not large enough table".to_string();
+                return;
+            }
+            let free = ((fs.0-1)*(fs.1-1)) as f64;
+
+            let Ok(n) = ChiSquared::new(free) else {
+                self.strings[1] = "Not a valid Chi squared distr".to_string();
+                return;
+            };
+
+            // println!("{:?}\n{:?}\n", exp, self.sample_vals);
+
+            let crit = exp.iter().zip(self.sample_vals.iter()).map(|(e,o)| {
+                e.iter().zip(o.iter()).map(|(e, o)| (e-o.clone().unwrap()).powi(2)/e).sum::<f32>()
+            }).sum::<f32>() as f64;
+
+            // println!("{crit}");
+
+            self.pval = 1.0 - n.cdf(crit) as f32;
+
+            self.strings[0] = self.pval.to_string();
+            self.strings[1].clear();
+            };
+            f();
+        }
+        ui.num_box("", &mut self.strings[0].clone());
+        ui.label(&self.strings[1]);
+        resp
+    }
+}
+
+impl RCTable {
+    fn vfill(&mut self) {
+        for (sr, vr) in self.kstrings.iter().zip(self.sample_vals.iter_mut()) {
+            for (s, v) in sr.iter().zip(vr.iter_mut()) {
+                *v = match s.parse::<f32>() {
+                    Ok(v) => Some(v),
+                    Err(_) => None,
+                };
             }
         }
     }

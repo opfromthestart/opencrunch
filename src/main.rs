@@ -9,7 +9,7 @@ use std::{
 use calcs::OpenCrunchCalcs;
 use distrs::OpenCrunchCDistr;
 use eframe::App;
-use egui::{Id, Rect, Sense, Ui};
+use egui::{Id, Rect, Sense, Ui, TextEdit};
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
@@ -138,6 +138,21 @@ impl NumBox for Ui {
             };
             */
             let resp = ui.text_edit_singleline(v);
+            *(v) = coerce_expr(v);
+            resp
+        })
+        .inner
+    }
+}
+
+trait GridNumBox {
+    fn grid_num_box(&mut self, width: usize, v: &mut String) -> egui::Response;
+}
+
+impl GridNumBox for Ui {
+    fn grid_num_box(&mut self, width: usize, v: &mut String) -> egui::Response {
+        self.horizontal(|ui| {
+            let resp = ui.add_sized((width as f32, 20.), TextEdit::singleline(v));
             *(v) = coerce_expr(v);
             resp
         })
