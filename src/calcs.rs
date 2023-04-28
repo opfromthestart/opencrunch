@@ -1,6 +1,4 @@
-use std::rc::Rc;
-
-use egui::{gui_zoom::zoom_with_keyboard_shortcuts, Color32, Response, RichText, Ui, Widget};
+use egui::{Color32, RichText, Ui, Widget};
 use meval::Expr;
 use opencrunch_derive::crunch_fill;
 use statrs::{
@@ -1433,7 +1431,7 @@ impl Widget for &mut SampleStat {
         if self.kstrings.is_empty() || self.kstrings.last().unwrap() != "" {
             self.sample_vals.push(None);
             self.kstrings.push("".to_string());
-        } else if self.kstrings.len() > 1 && self.kstrings[self.kstrings.len() - 2] == "" {
+        } else if self.kstrings.len() > 1 && self.kstrings[self.kstrings.len() - 2].is_empty() {
             self.sample_vals.pop();
             self.kstrings.pop();
         }
@@ -1452,7 +1450,7 @@ impl Widget for &mut SampleStat {
                     x + y.map(|y| (mean - y).powi(2) as f64).unwrap_or(0.)
                 }) / ((len - 1) as f64);
 
-                self.mean = mean as f32;
+                self.mean = mean;
                 self.var = var as f32;
                 self.sd = var.sqrt() as f32;
 
@@ -1544,7 +1542,7 @@ fn add_row<T: Default>(g: &mut Vec<Vec<T>>) {
     }
 }
 
-fn add_col<T: Default>(g: &mut Vec<Vec<T>>) {
+fn add_col<T: Default>(g: &mut [Vec<T>]) {
     for r in g.iter_mut() {
         r.push(T::default());
     }
@@ -1554,7 +1552,7 @@ fn rem_row<T>(g: &mut Vec<Vec<T>>) {
     g.pop();
 }
 
-fn rem_col<T>(g: &mut Vec<Vec<T>>) {
+fn rem_col<T>(g: &mut [Vec<T>]) {
     for r in g.iter_mut() {
         r.pop();
     }
@@ -1607,7 +1605,7 @@ impl Widget for &mut RCTable {
                     return;
                 }
 
-                let mut pooled = self
+                let pooled = self
                     .sample_vals
                     .iter()
                     .cloned()
@@ -1626,14 +1624,13 @@ impl Widget for &mut RCTable {
                 let pooled_row = self
                     .sample_vals
                     .iter()
-                    .map(|x| {
+                    .filter_map(|x| {
                         x.iter().fold(Some(0.), |x, y| {
                             let x = x.unwrap_or(0.);
                             let y = y.unwrap_or(0.);
                             Some(x + y)
                         })
                     })
-                    .filter_map(|x| x)
                     .collect::<Vec<_>>();
 
                 if pooled_row.is_empty() {
@@ -1679,7 +1676,7 @@ impl Widget for &mut RCTable {
                     .map(|(e, o)| {
                         e.iter()
                             .zip(o.iter())
-                            .map(|(e, o)| (e - o.clone().unwrap()).powi(2) / e)
+                            .map(|(e, o)| (e - (*o).unwrap()).powi(2) / e)
                             .sum::<f32>()
                     })
                     .sum::<f32>() as f64;

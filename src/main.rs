@@ -17,7 +17,7 @@ fn main() {
     eframe::run_native(
         "OpenCrunch",
         native_options,
-        Box::new(|c| Box::new(OpenCrunch::default())),
+        Box::new(|_| Box::<OpenCrunch>::default()),
     )
     .unwrap();
 }
@@ -194,8 +194,6 @@ impl<T: std::str::FromStr + Debug> FromStr for Constr<T> {
             Ok(Self::LENone)
         } else if s == "!=" {
             Ok(Self::NENone)
-        } else if s == "=" {
-            Ok(Self::EQNone)
         } else if s == "=" {
             Ok(Self::EQNone)
         } else if l >= 2 && &s[..2] == ">=" {
