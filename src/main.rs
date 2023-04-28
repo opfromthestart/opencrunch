@@ -9,7 +9,7 @@ use std::{
 use calcs::OpenCrunchCalcs;
 use distrs::OpenCrunchCDistr;
 use eframe::App;
-use egui::{Id, Rect, Sense, Ui, TextEdit};
+use egui::{Id, Rect, Sense, TextEdit, Ui};
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
@@ -17,10 +17,9 @@ fn main() {
     eframe::run_native(
         "OpenCrunch",
         native_options,
-        Box::new(|c| {
-            Box::new(OpenCrunch::default())
-        }),
-    ).unwrap();
+        Box::new(|c| Box::new(OpenCrunch::default())),
+    )
+    .unwrap();
 }
 
 use meval::Expr;
@@ -329,20 +328,26 @@ impl<T> Constr<T> {
     }
 
     fn is_ineq(&self) -> bool {
-        matches!(self, Constr::GE(_)
-                     | Constr::LE(_)
-                     | Constr::GT(_)
-                     | Constr::LT(_)
-                     | Constr::GENone
-                     | Constr::LENone
-                     | Constr::GTNone
-                     | Constr::LTNone
-                     | Constr::In(_, _)
-                     | Constr::Out(_, _))
+        matches!(
+            self,
+            Constr::GE(_)
+                | Constr::LE(_)
+                | Constr::GT(_)
+                | Constr::LT(_)
+                | Constr::GENone
+                | Constr::LENone
+                | Constr::GTNone
+                | Constr::LTNone
+                | Constr::In(_, _)
+                | Constr::Out(_, _)
+        )
     }
 
     fn is_eq(&self) -> bool {
-        matches!(self, Constr::EQ(_) | Constr::NE(_) | Constr::EQNone | Constr::NENone)
+        matches!(
+            self,
+            Constr::EQ(_) | Constr::NE(_) | Constr::EQNone | Constr::NENone
+        )
     }
 
     fn is_range(&self) -> bool {
@@ -352,7 +357,13 @@ impl<T> Constr<T> {
     fn is_some(&self) -> bool {
         !matches!(
             self,
-            Constr::None | Constr::GENone | Constr::GTNone | Constr::LENone | Constr::LTNone | Constr::EQNone | Constr::NENone
+            Constr::None
+                | Constr::GENone
+                | Constr::GTNone
+                | Constr::LENone
+                | Constr::LTNone
+                | Constr::EQNone
+                | Constr::NENone
         )
     }
 }

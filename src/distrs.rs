@@ -179,9 +179,7 @@ impl Widget for &mut OpenCrunchCDistr {
             });
         });
 
-        for file in ctx.input(|i| {
-            i.raw.dropped_files.clone()
-        }) {
+        for file in ctx.input(|i| i.raw.dropped_files.clone()) {
             let path = file.path.clone().unwrap();
             let len = File::open(path.clone()).unwrap().metadata().unwrap().len();
             let name = path.file_name().unwrap().to_str().unwrap();
